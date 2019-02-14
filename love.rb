@@ -16,14 +16,16 @@ love = Love.new
 a.b(0)
 love.b("")
 
+[2].map { |e| p e }
 
 def e
   raise "e"
 end
 
-e()
-begin
-  e()
-rescue
-  puts 0
-end
+
+# e()
+# begin
+#   e()
+# rescue
+#   puts 0
+# end

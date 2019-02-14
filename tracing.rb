@@ -3,22 +3,33 @@ require 'parser/current'
 require 'ast'
 
 $trace = []
-
+$lines = []
+$inter_traces = {}
 
 def trace_calls(data)
-  puts "CALL ", data.method_id  
   new_trace = [data.path, data.lineno, data.defined_class, data.method_id, data.binding.local_variables.map { |a| [a, data.binding.local_variable_get(a).class]}, :input, nil]
   $trace.push new_trace
 end
 
-t = TracePoint.new(:call) do |tp|
-  trace_calls(tp)
+t = TracePoint.new(:call, :c_call) do |tp|
+  if tp.defined_class != TracePoint && tp.defined_class != Kernel && tp.method_id != :disable && tp.method_id != :inherited && tp.defined_class != Class && tp.method_id != :method_added
+    t4.disable
+    t.disable
+    t2.disable
+    t3.disable
+    if $inter_traces[data.path].nil?
+      $inter_traces[data.path] = generate_ast(data.path)
+    end
+    trace_calls(tp)
+    t.enable
+    t2.enable
+    t3.enable
+    t4.enable
+  end
 end
 
 t2 = TracePoint.new(:return) do |tp|
-  if tp.method_id != :initialize
-    $trace.push [tp.path, tp.lineno, tp.defined_class, tp.method_id, [:result, tp.return_value.class], :return, nil]
-  end
+  $trace.push [tp.path, tp.lineno, tp.defined_class, tp.method_id, [:result, tp.return_value.class], :return, nil]
 end
 
 t3 = TracePoint.new(:raise) do |tp|
@@ -26,13 +37,29 @@ t3 = TracePoint.new(:raise) do |tp|
   $trace[-1][-1] = exception
 end
 
-t.enable
-t2.enable
-t3.enable
-begin
-  Kernel.load ARGV.first
-rescue
+t4 = TracePoint.new(:line) do |tp|
+  t4.disable
+  t.disable
+  t2.disable
+  t3.disable
+  if $inter_traces[data.path].nil?
+    $inter_traces[data.path] = generate_ast(data.path)
+  end
+  t.enable
+  t2.enable
+  t3.enable
+  t4.enable
+  # if $inter_traces[data.path][:lines].key?(tp.lineno)
+  #   $inter_traces[data.path][:lines][tp.lineno].each do |trace|
+  #     node.visit do |label|
+  #       #label
+  #       # just follow calls
+  #       # and then just fill those instead of all
+        # after this do local inference
+
+  $lines.push([tp.path, tp.lineno])
 end
+
 
 class Type
   attr_reader :kind, :args, :return_type, :label
@@ -124,6 +151,41 @@ INTER_VARIABLE = 3
 
 PATTERN_STDLIB = {puts: -> a { {kind: INTER_CALL, children: [{kind: INTER_VARIABLE, label: "echo"}] + a , typ: {kind: :nil} } } }
 
+class InterTranslator
+  def initialize(ast)
+    @ast = ast
+  end
+
+  def process
+    res = {imports: [], main: [], classes: [], lines: {}}
+    @inter_ast = res
+    @ast.children.each do |it|
+      if it.kind == :class
+        res[:classes].push(process_node it)
+      elsif it.kind == :send && it.children[0].nil? && it.children[1] == :require
+        res[:imports].push(it.children[2])
+      else
+        res[:main].push(process_node it)
+      end
+    end
+  end
+
+  def process_node(node)
+    if node.class == AST
+      value = {kind: KINDS[node.kind], children: node.children.map { |it| process_node it }, typ: nil}
+      if !@inter_ast[:lines].key?(node.lineno)
+        @inter_ast[:lines][node.lineno] = []
+      end
+      @inter_ast[:lines][node.lineno].push(value)
+      value
+    elsif node.class == Integer
+      p node
+    else
+      p node
+    end
+  end
+end
+
 class InterProcessor
   include AST::Processor::Mixin
 
@@ -199,11 +261,18 @@ class InterProcessor
   end
 end
 
-def generate_inter_traces(traces, methods, ast)
-  inter_ast = {imports: [], main: [], classes: []}
-  InterProcessor.new(traces, methods, inter_ast).process(ast)
-  inter_ast
+def generate_ast(path)
+  input = File.read(path)
+  ast = Parser::CurrentRuby.parse(input)
+  # InterProcessor.new(traces, methods, inter_ast).process(ast)
+  InterTranslator.new(ast).process
 end
+
+# def generate_inter_traces(traces, methods, ast)
+#   inter_ast = {imports: [], main: [], classes: []}
+#   InterProcessor.new(traces, methods, inter_ast).process(ast)
+#   inter_ast
+# end
 
 def generate_path(path, methods, traces, inter_traces)
   input = File.read(path)
@@ -220,7 +289,18 @@ def generate(traces, paths)
   File.write("lang_traces.json", JSON.dump(inter_traces))
 end
 
+t.enable
+t2.enable
+t3.enable
+t4.enable
+
+begin
+  Kernel.load ARGV.first
+rescue
+end
+
 at_exit do
+  t4.disable
   t.disable
   t2.disable
   t3.disable
@@ -228,5 +308,4 @@ at_exit do
   generate(traces, paths)
   p $trace
 end
-
 
