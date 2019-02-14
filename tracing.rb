@@ -6,7 +6,8 @@ $trace = []
 
 
 def trace_calls(data)
-  new_trace = [data.path, data.lineno, data.defined_class, data.method_id, data.binding.local_variables.map { |a| [a, data.binding.local_variable_get(a).class]}, :input]
+  puts "CALL ", data.method_id  
+  new_trace = [data.path, data.lineno, data.defined_class, data.method_id, data.binding.local_variables.map { |a| [a, data.binding.local_variable_get(a).class]}, :input, nil]
   $trace.push new_trace
 end
 
@@ -16,14 +17,22 @@ end
 
 t2 = TracePoint.new(:return) do |tp|
   if tp.method_id != :initialize
-    $trace.push [tp.path, tp.lineno, tp.defined_class, tp.method_id, [:result, tp.return_value.class], :return]
+    $trace.push [tp.path, tp.lineno, tp.defined_class, tp.method_id, [:result, tp.return_value.class], :return, nil]
   end
 end
 
+t3 = TracePoint.new(:raise) do |tp|
+  exception = tp.raised_exception
+  $trace[-1][-1] = exception
+end
 
 t.enable
 t2.enable
-Kernel.load ARGV.first
+t3.enable
+begin
+  Kernel.load ARGV.first
+rescue
+end
 
 class Type
   attr_reader :kind, :args, :return_type, :label
@@ -113,7 +122,7 @@ INTER_METHOD = 1
 INTER_CALL = 2
 INTER_VARIABLE = 3
 
-PATTERN_STDLIB = {puts: -> a { {kind: INTER_CALL, args: [{kind: INTER_VARIABLE, label: "echo"}] + a , typ: {kind: :nil} } } }
+PATTERN_STDLIB = {puts: -> a { {kind: INTER_CALL, children: [{kind: INTER_VARIABLE, label: "echo"}] + a , typ: {kind: :nil} } } }
 
 class InterProcessor
   include AST::Processor::Mixin
@@ -145,7 +154,10 @@ class InterProcessor
     id = "#{@path}.#{node.children[0].to_s}"
     if @methods.include?(id) && @traces.key?(id)
       args = load_args(node.children[1], @traces[id])
-      new_node = {kind: INTER_METHOD, label: node.children[0].to_s, id: id, args: args, code: [], return_type: @traces[id][:return_type]}
+      new_node = {kind: INTER_METHOD, label: node.children[0].to_s, id: id, args: args, code: [], return_type: @traces[id][:return_type], raises: []}
+      if !@traces[id][-1].nil?
+        new_node[:raises].push({kind: INTER_VARIABLE, label: @traces[id][-1].class.to_s})
+      end
       @inter_method = new_node
       p node.children[2]
       process(node.children[2])
@@ -166,6 +178,9 @@ class InterProcessor
         call_node = PATTERN_STDLIB[label.to_sym].call(node.children[2..-1].map { |it| process(it) })
       else
         call_node = {kind: INTER_CALL, args: [{kind: INTER_VARIABLE, label: label}] + node.children[2..-1].map { |it| process(it) }}
+      end
+      if @inter_method.nil?
+        return
       end
       @inter_method[:code].push(call_node)
     end
@@ -202,16 +217,16 @@ def generate(traces, paths)
     generate_path(path, methods, traces, inter_traces)
   end
   p inter_traces
+  File.write("lang_traces.json", JSON.dump(inter_traces))
 end
 
 at_exit do
   t.disable
   t2.disable
-
+  t3.disable
   traces, paths = write($trace)
   generate(traces, paths)
   p $trace
 end
-
 
 
