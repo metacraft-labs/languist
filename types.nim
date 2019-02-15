@@ -153,7 +153,7 @@ type
       fields*: seq[Field]
       methods*: seq[Field]
     of NodeMethod:
-      id*: string
+      # id*: string
       returnType*: Type
       args*: seq[Node]
       code*: seq[Node]

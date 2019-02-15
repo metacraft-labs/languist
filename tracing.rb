@@ -5,31 +5,50 @@ require 'ast'
 $trace = []
 $lines = []
 $inter_traces = {}
+$call_lines = []
 
 def trace_calls(data)
   new_trace = [data.path, data.lineno, data.defined_class, data.method_id, data.binding.local_variables.map { |a| [a, data.binding.local_variable_get(a).class]}, :input, nil]
-  $trace.push new_trace
+  $call_lines.push(data.lineno)
+  if data.lineno == 2
+    p $call_lines, $inter_traces[data.path][:method_lines]
+  end
+  if $inter_traces[data.path][:method_lines].key?(data.lineno)
+    $inter_traces[data.path][:method_lines][data.lineno][:args].each do |arg|
+      if arg[:label] == :self
+        arg[:typ] = load_type(data.binding.receiver.class)
+      else
+        arg[:typ] = load_type(data.binding.local_variable_get(arg[:label]).class)
+      end
+    end
+  end
 end
 
 t = TracePoint.new(:call, :c_call) do |tp|
   if tp.defined_class != TracePoint && tp.defined_class != Kernel && tp.method_id != :disable && tp.method_id != :inherited && tp.defined_class != Class && tp.method_id != :method_added
-    t4.disable
-    t.disable
-    t2.disable
-    t3.disable
-    if $inter_traces[data.path].nil?
-      $inter_traces[data.path] = generate_ast(data.path)
+    p "in", tp.method_id
+    if !$inter_traces.key?(tp.path)
+      $inter_traces[tp.path] = generate_ast(tp.path)
     end
     trace_calls(tp)
-    t.enable
-    t2.enable
-    t3.enable
-    t4.enable
   end
 end
 
 t2 = TracePoint.new(:return) do |tp|
-  $trace.push [tp.path, tp.lineno, tp.defined_class, tp.method_id, [:result, tp.return_value.class], :return, nil]
+  p "return"
+  path, line, *_ = caller[1].split(':')
+  line = $call_lines.pop
+  typ = load_type(tp.return_value.class)
+  if $inter_traces.key?(path) && $inter_traces[path][:lines].key?(line)
+    $inter_traces[path][:lines][line].each do |a|
+      if a[:children][1][:kind] == :variable && a[:children][1][:label] == tp.method_id
+        a[:typ] = typ
+      end
+    end
+  end
+  if $inter_traces[tp.path][:method_lines].key?(line)
+    $inter_traces[tp.path][:method_lines][line][:return_type] = typ
+  end
 end
 
 t3 = TracePoint.new(:raise) do |tp|
@@ -38,18 +57,18 @@ t3 = TracePoint.new(:raise) do |tp|
 end
 
 t4 = TracePoint.new(:line) do |tp|
-  t4.disable
-  t.disable
-  t2.disable
-  t3.disable
-  if $inter_traces[data.path].nil?
-    $inter_traces[data.path] = generate_ast(data.path)
-  end
-  t.enable
-  t2.enable
-  t3.enable
-  t4.enable
-  # if $inter_traces[data.path][:lines].key?(tp.lineno)
+  # t4.disable
+  # t.disable
+  # t2.disable
+  # t3.disable
+  # if $inter_traces[data.path].nil?
+  #   $inter_traces[data.path] = generate_ast(data.path)
+  # end
+  # t.enable
+  # t2.enable
+  # t3.enable
+  # t4.enable
+  # # if $inter_traces[data.path][:lines].key?(tp.lineno)
   #   $inter_traces[data.path][:lines][tp.lineno].each do |trace|
   #     node.visit do |label|
   #       #label
@@ -57,7 +76,7 @@ t4 = TracePoint.new(:line) do |tp|
   #       # and then just fill those instead of all
         # after this do local inference
 
-  $lines.push([tp.path, tp.lineno])
+  # $lines.push([tp.path, tp.lineno])
 end
 
 
@@ -69,14 +88,14 @@ def load_type(arg)
   if arg.nil?
     return {kind: :nil}
   end
-  if arg[1] == Integer
+  if arg == Integer
     {kind: :int}
-  elsif arg[1] == NilClass
+  elsif arg == NilClass
     {kind: :nil}
-  elsif arg[1] == String
+  elsif arg == String
     {kind: :string}
   else
-    {kind: :simple, label: arg[1].name}
+    {kind: :simple, label: arg.name}
   end
 end
 
@@ -151,38 +170,100 @@ INTER_VARIABLE = 3
 
 PATTERN_STDLIB = {puts: -> a { {kind: INTER_CALL, children: [{kind: INTER_VARIABLE, label: "echo"}] + a , typ: {kind: :nil} } } }
 
+KINDS = {}
 class InterTranslator
   def initialize(ast)
     @ast = ast
   end
 
   def process
-    res = {imports: [], main: [], classes: [], lines: {}}
+    res = {imports: [], main: [], classes: [], lines: {}, method_lines: {}}
     @inter_ast = res
     @ast.children.each do |it|
-      if it.kind == :class
+      if it.type == :class
         res[:classes].push(process_node it)
-      elsif it.kind == :send && it.children[0].nil? && it.children[1] == :require
-        res[:imports].push(it.children[2])
+      elsif it.type == :send && it.children[0].nil? && it.children[1] == :require
+        res[:imports].push(it.children[2].children[0])
       else
         res[:main].push(process_node it)
       end
     end
+    res
+  end
+
+  def get_kind(type)
+    if KINDS.key?(type)
+      KINDS[type]
+    else
+      :"ruby_#{type}"
+    end
   end
 
   def process_node(node)
-    if node.class == AST
-      value = {kind: KINDS[node.kind], children: node.children.map { |it| process_node it }, typ: nil}
-      if !@inter_ast[:lines].key?(node.lineno)
-        @inter_ast[:lines][node.lineno] = []
+    if node.class == Parser::AST::Node
+      if respond_to?(:"process_#{node.type}")
+        return send :"process_#{node.type}", node
       end
-      @inter_ast[:lines][node.lineno].push(value)
-      value
+      if node.type == :def
+        value = {kind: :node_method, label: {typ: :variable, label: node.children[0]}, args: [], code: [], typ: nil, return_type: nil}
+        value[:args] = [{kind: :variable, label: :self, typ: nil}] + node.children[1].children.map { |it| process_node it }
+        value[:code] = node.children[2 .. -1].map { |it| process_node it }
+        # value[:args] = args
+        # value[:code] 
+        @inter_ast[:method_lines][node.loc.line] = value
+        return value
+      end
+      value = {kind: get_kind(node.type), children: node.children.map { |it| process_node it }, typ: nil}
+      # p get_kind(node.type)
+      if node.type == :send
+        begin
+          if !@inter_ast[:lines].key?(node.loc.line)
+            @inter_ast[:lines][node.loc.line] = []
+          end
+          @inter_ast[:lines][node.loc.line].push(value)
+          value
+        rescue
+          {kind: :nil}
+        end
+      end
+      # if @methods.length > 0
+      #   if !@inter_ast[:method_lines].key?(node.loc.line)
+      #     @inter_ast[:method_lines][node.loc.line] = @methods[-1]
+      #   end
+      # end
     elsif node.class == Integer
-      p node
-    else
-      p node
+      {kind: :int, i: node, typ: nil}
+    elsif node.class == String
+      {kind: :string, text: node, typ: nil}
+    elsif node.class == Symbol
+      {kind: :variable, label: node, typ: nil}
+    elsif node.nil?
+      {kind: :nil, typ: nil}
     end
+  end
+
+  def process_int(node)
+    {kind: :int, i: node.children[0]}
+  end
+
+  def process_str(node)
+    {kind: :str, text: node.children[0]}
+  end
+
+  def process_ivar(node)
+    {kind: :attribute, children: [{kind: :self}, {kind: :variable, label: node.children[0]}]}
+  end
+
+  def process_lvar(node)
+    {kind: :variable, label: node.children[0]}
+  end
+
+  def process_nil(node)
+    {kind: :nil}
+  end
+
+  def process_arg(node)
+    {kind: :variable, label: node.children[0]}
   end
 end
 
@@ -221,7 +302,7 @@ class InterProcessor
         new_node[:raises].push({kind: INTER_VARIABLE, label: @traces[id][-1].class.to_s})
       end
       @inter_method = new_node
-      p node.children[2]
+      # p node.children[2]
       process(node.children[2])
       @inter_method = nil
       if @inter_class.nil?
@@ -264,6 +345,7 @@ end
 def generate_ast(path)
   input = File.read(path)
   ast = Parser::CurrentRuby.parse(input)
+  p path
   # InterProcessor.new(traces, methods, inter_ast).process(ast)
   InterTranslator.new(ast).process
 end
@@ -280,13 +362,8 @@ def generate_path(path, methods, traces, inter_traces)
   inter_traces[path] = generate_inter_traces(traces, methods, ast)
 end
 
-def generate(traces, paths)
-  inter_traces = {}
-  paths.each do |path, methods|
-    generate_path(path, methods, traces, inter_traces)
-  end
-  p inter_traces
-  File.write("lang_traces.json", JSON.dump(inter_traces))
+def generate
+  File.write("lang_traces.json", JSON.dump($inter_traces))
 end
 
 t.enable
@@ -296,7 +373,8 @@ t4.enable
 
 begin
   Kernel.load ARGV.first
-rescue
+rescue => e
+  raise e
 end
 
 at_exit do
@@ -304,8 +382,6 @@ at_exit do
   t.disable
   t2.disable
   t3.disable
-  traces, paths = write($trace)
-  generate(traces, paths)
-  p $trace
+  generate
 end
 
