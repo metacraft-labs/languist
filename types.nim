@@ -679,23 +679,83 @@ proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node): Node =
       newNode.children[i] = rewriteNode(child, rewrite, blockNode)
   return newNode
 
+proc compileNode(node: NimNode, replaced: seq[(string, NimNode)]): NimNode =
+  case node.kind:
+  of nnkCharLit..nnkUInt64Lit:
+    return node
+  of nnkFloatLit..nnkFloat128Lit:
+    return node
+  of nnkStrLit..nnkTripleStrLit:
+    return node
+  of nnkSym:
+    return nnkCall.newTree(ident"variable", newLit($node))
+  of nnkIdent:
+    let label = $node
+    var typ = newNilLit()
+    for e in replaced:
+      if label == e[0]:
+        typ = e[1]
+    return nnkCall.newTree(ident"variable", newLit($node), typ)
+  of nnkStmtList:
+    return compileNode(node[0], replaced)
+  else:
+    var sons = node.mapIt(compileNode(it, replaced))
+    var call = ""
+    case node.kind:
+    of nnkCall:
+      call = "call"
+    of nnkDotExpr:
+      call = "attribute"
+    else:
+      call = "unknown"
+    result = nnkCall.newTree(ident(call))
+    for son in sons:
+      result.add(son)
+    return result
+
 proc generateInput(input: NimNode): NimNode =
   let args = input[3]
+  var help = ident("help")
   result = quote:
-    var help {.exportc.} = RewriteRule(input: nil, output: nil, )
+    var `help` = RewriteRule(input: nil, output: nil, replaced: @[], isGeneric: false)
+
+  var replaced2: seq[(string, NimNode)]
 
   for i, arg in args:
     if i != 0:
+      let label = newLit($arg[0])
+      let typ = ident($arg[1] & "Type")
+      var n = quote:
+        `help`.replaced.add((
+          `label`,
+          @[],
+          `typ`))
+      result.add(n)
+      replaced2.add(($label, typ))
+      echo result.repr
 
-  # RewriteRule()
+  let h = compileNode(input[^1], replaced2)
+  var n = quote:
+    `help`.input = `h`
+  result.add(n)
+  # n = nnkCall.newTree(nnkDotExpr.newTree(ident("rewriteList"), ident"add"), help)
+  n = quote:
+    rewriteList.add(`help`)
+  result.add(n)
+  echo result.treerepr
 
+var IntType = Type(kind: T.Simple, label: "Int")
+var FunctionType = Type(kind: T.Simple, label: "Function")
 
 macro rewrite*(input: untyped, output: untyped): untyped =
   let inputNode = generateInput(input)
   assert output.kind == nnkStmtList and output[0][0].repr == "interlang"
-  echo input.lisprepr
+  result = inputNode
+  echo result.repr
 
-rewrite do (x: Int, y: Block):
+var rewriteList  = Rewrite(rules: @[])
+
+rewrite do (x: Int, y: Function):
   # тук имаш някакъв сложен snippet, който включва x и y
   x.times(y)
 do:
@@ -704,4 +764,17 @@ do:
   # тук казваш какъв е изходния snippet
   #for i in 0 ..< x:
   #  y
+
+echo rewriteList.rules[0].input
+
+var help = RewriteRule(input: nil, output: nil, replaced: @[], isGeneric: false)
+help.input = call(attribute(variable("x", IntType), variable("times", nil)),
+                variable("y", FunctionType))
+help.replaced.add(("x", @[], IntType))
+help.replaced.add(("y", @[], FunctionType))
+
+help.output = proc(node: Node, blockNode: BlockNode, rule: RewriteRule) =
+  let x = 
+  forRange(, 0, variable("x"), variable("y"))
+rewriteList.add(help)
 
