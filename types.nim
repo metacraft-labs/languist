@@ -1,7 +1,4 @@
-# those type nodes are closer to nim's type system
-# they are easily mappable to PNode
-
-import sequtils, strutils, strformat, tables, sugar, hashes, errors, gen_kind, sets, json
+import sequtils, strutils, strformat, tables, sugar, hashes, gen_kind, sets, json, macros
 
 type
   T* {.pure.} = enum 
@@ -100,7 +97,7 @@ type
     hasYield*:    bool
 
   NodeKind* = enum
-    Class, NodeMethod, Call, Variable,
+    Class, NodeMethod, Call, Variable, Int,
     PyAST, PyAdd, PyAnd, PyAnnAssign, PyAssert, PyAssign, PyAsyncFor, PyAsyncFunctionDef, PyAsyncWith, PyAttribute,
     PyAugAssign, PyAugLoad, PyAugStore, PyAwait, PyBinOp, PyBitAnd, PyBitOr, PyBitXor, PyBoolOp, PyBreak, PyBytes,
     PyCall, PyClassDef, PyCompare, PyConstant, PyContinue, PyDel, PyDelete, PyDict,
@@ -121,15 +118,16 @@ type
   Node* = ref object
     typ*: Type # The nim type of the node
     debug*: string # Eventually python source?
-    idiomatic*: bool # Makes sure a node is converted to an idiom max 1
+    idiomatic*: seq[int] # list of idioms applied
     line*: int # Line, -1 or actual
     column*: int # Column, -1 or actual
-    ready*: bool # Ready for gen
     label*: string
+    isFinished*: bool
+    isReplace*: bool
     case kind*: NodeKind:
     of PyStr, PyBytes:
       text*: string
-    of PyInt:
+    of Int, PyInt:
       i*: int
     of PyFloat:
       f*: float
@@ -171,6 +169,13 @@ type
     types*: seq[Node] # probably ClassDef
     methods*: seq[Node] # probably FunctionDef
     main*: seq[Node] # other top level stuff
+  
+  TypeDependency* = object
+    methods*: Table[string, seq[string]]
+    ignore*:  seq[string]
+    all*:     seq[string]
+
+  Python2NimError* = object of Exception
 
 let endl = "\n"
 
@@ -392,4 +397,311 @@ proc childEnv*(e: Env, label: string, args: Table[string, Type], returnType: Typ
     argsChild[arg] = false
   result = Env(types: args, args: argsChild, returnType: returnType, label: label, parent: e)
   result.top = if e.isNil: result else: e.top
+
+
+proc dump*(node: Node, depth: int, typ: bool = false): string =
+  if node.isNil:
+    return "nil"
+  let offset = repeat("  ", depth)
+  var left = ""
+  let kind = if node.kind != Sequence: ($node.kind)[2..^1] else: $node.kind
+  var typDump = if typ: "#$1" % dump(node.typ, 0) else: ""
+  if typDump == "#nil":
+    typDump = ""
+  if left == "":
+    left = case node.kind:
+      of Int:
+        "Int($1)$2" % [$node.i, typDump]
+      of Variable:
+        "Variable($1)$2" % [node.label, typDump]
+      else:
+        "$1$2:\n$3" % [kind, typDump, node.children.mapIt(dump(it, depth + 1, typ)).join("\n")]
+  result = "$1$2" % [offset, left]
+
+proc dumpList*(nodes: seq[Node], depth: int): string =
+  result = nodes.mapIt(dump(it, depth, true)).join("\n")
+
+const RUBY_LITERALS = {Int, Variable}
+
+proc `[]`*(node: Node, index: int): var Node =
+  case node.kind:
+  of RUBY_LITERALS:
+    raise newException(ValueError, "no index")
+  else:
+    return node.children[index]
+
+proc `[]=`*(node: var Node, index: int, a: Node) =
+  case node.kind:
+  of RUBY_LITERALS:
+    raise newException(ValueError, "no index")
+  else:
+    node.children[index] = a
+
+iterator items*(node: Node): Node =
+  case node.kind:
+  of RUBY_LITERALS:
+    discard
+  else:
+    for child in node.children:
+      yield child
+
+iterator mitems*(node: Node): var Node =
+  for child in node.children.mitems:
+    yield child
+
+iterator nitems*(node: Node): (int, var Node) =
+  var z = 0
+  for child in node.children.mitems:
+    yield (z, child)
+    z += 1
+
+proc `$`*(node: Node): string =
+  result = dump(node, 0)
+
+
+# proc notExpr*(node: Node): Node =
+#   result = node
+#   while result.kind == PyExpr:
+#     result = result.children[0]
+
+# proc testEq*(a: Node, b: Node): bool =
+#   if a.isNil or b.isNil:
+#     return false
+#   elif a.kind == PyExpr or b.kind == PyExpr:
+#     var newA = notExpr(a)
+#     var newB = notExpr(b)
+#     result = testEq(newA, newB)
+#   elif a.kind != b.kind:
+#     return false
+#   else:
+#     case a.kind:
+#       of PyStr, PyBytes:
+#       of PyInt:
+#         result = a.i == b.i
+#       of PyFloat:
+#         result = a.f == b.f
+#       of PyLabel, PyOperator:
+#         result = a.label == b.label
+#       of PyChar:
+#         result = a.c == b.c
+#       of PyHugeInt:
+#         result = a.h == b.h
+#       else:
+#         if len(a.children) > 0 and len(b.children) > 0:
+#           if len(a.children) != len(b.children):
+#             return false
+#           result = zip(a.children, b.children).allIt(it[0].testEq(it[1]))
+#         else:
+#           result = len(a.children) == 0 and len(b.children) == 0
+
+proc deepCopy*(a: Node): Node =
+  if a.isNil:
+    return nil
+  result = genKind(Node, a.kind)
+  case a.kind:
+  of PyStr, PyBytes:
+    result.text = a.text
+  of PyInt:
+    result.i = a.i
+  of PyFloat:
+    result.f = a.f
+  of PyLabel:
+    result.label = a.label
+  of PyHugeInt:
+    result.h = a.h
+  of PyChar:
+    result.c = a.c
+  of PyAssign:
+    result.declaration = a.declaration
+  of PyImport:
+    result.aliases = a.aliases.mapIt(deepCopy(it))
+  of PyFunctionDef:
+    result.isIterator = a.isIterator
+    result.isMethod = a.isMethod
+    result.calls = a.calls
+    result.isGeneric = a.isGeneric
+  else:
+    discard
+  result.children = @[]
+  for child in a.children:
+    result.children.add(deepCopy(child))
+
+proc camelCase*(label: string): string =
+  var remainder = label
+  var underline = 0
+  while underline < len(remainder) and remainder[underline] == '_':
+    underline += 1
+  if underline > 0:
+    remainder = remainder[underline..^1]
+  var tokens = remainder.split("_")
+  result = repeat("_", underline) & tokens[0] & tokens[1..^1].mapIt(if len(it) > 0: capitalizeAscii(it) else: "_").join("")
+
+proc translateIdentifier*(label: string): string =
+  result = camelCase(label)
+
+proc translateIdentifier*(label: string, identifierCollisions: HashSet[string]): string =
+  var translated = translateIdentifier(label)
+  if translated notin identifierCollisions:
+    return translated
+  else:
+    return label
+
+proc load*(dbfile: string): TraceDB =
+  new(result)
+  result.root = parseJson(readFile(dbfile))
+  result.types = initTable[string, Type]()
+  result.sysPath = @[]
+  result.modules = @[]
+  result.projectDir = result.root{"@projectDir"}.getStr()
+  result.package = result.projectDir.rsplit("/", 1)[1]
+  for label, trace in result.root:
+    if label == "@types":
+      for childLabel, child in trace:
+        if childLabel != "@path":
+          # echo childLabel
+          var typ: Type # = toType(importType(child))
+          typ.fullLabel = childLabel
+          if typ.kind == T.MethodOverload:
+            for overload in typ.overloads.mitems:
+              overload.fullLabel = childLabel
+          result.types[childLabel] = typ
+        else:
+          result.sysPath = child.mapIt(($it)[1..^2])
+    else:
+      result.modules.add(label)
+
+
+proc loadAst*(db: TraceDB, filename: string): Node =
+  # XXX: Perhaps, this could be cached
+  # echo filename
+  # result = importAst(db.root[filename]["ast"])
+  discard
+
+proc startPath*(db: TraceDB): string =
+  # TODO: smarter
+  result = ""
+  var maybeResult = ""
+  for module in db.modules:
+    if module.startsWith(db.projectDir):
+      if module.endsWith("constants.py"):
+        result = module
+        break
+      elif maybeResult == "":
+        maybeResult = module
+  if result == "":
+    result = maybeResult
+
+
+type
+  RewriteRule* = ref object
+    input*:   Node
+    output*:  proc(node: Node, blockNode: Node, rule: RewriteRule): Node
+    replaced*: seq[tuple[label: cstring, index: seq[int], typ: Type]]
+    isGeneric*: bool
+
+  Rewrite* = object
+    rules*: seq[RewriteRule]
+
+# call(find(`e`)) => call(push()
+# isReplaced
+# nope just find out names
+# receiver = etc
+# and replace
+# output = the general function which does it based on clojure rewrite list too
+
+proc find(l: Node, r: Node): bool =
+  if l.kind == Variable:
+    if not l.typ.isNil and l.typ != r.typ:
+      return false
+    else:
+      return true
+  if l.kind != r.kind:
+    return false
+  case l.kind:
+  of Variable:
+    result = l.label == r.label
+  of PyStr, PyBytes:
+    result = l.text == r.text
+  of Int, PyInt:
+    result = l.i == r.i
+  of PyFloat:
+    result = l.f == r.f
+  of PyChar:
+    result = l.c == r.c
+  else:
+    result = true
+  if not result:
+    return
+  if l.children.len != r.children.len:
+    return false
+  for i in 0 .. < l.children.len:
+    if not l.children[i].find(r.children[i]):
+      return false
+  result = true
+  
+proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
+  result = @[]
+  for rule in rewrite.rules:
+    if rule.input.find(node):
+      result.add(rule)
+
+proc replace(rule: RewriteRule, node: Node, blockNode: Node): Node =
+  result = rule.output(node, blockNode, rule)
+  result.isFinished = true
+
+proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node): Node
+
+proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node): Node =
+  var b: seq[RewriteRule] = @[]
+  if not node.isFinished:
+    b = rewrite.find(node)
+  var newNode = node
+  if b.len > 0:
+    var c = b[0]
+    for a in b:
+      if c.isGeneric and not a.isGeneric:
+        c = a
+    newNode = c.replace(node, blockNode)
+  return rewriteChildren(newNode, rewrite, blockNode)
+
+
+proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node): Node =
+  var newNode = deepCopy(node)
+  if node.kind == Class:
+    for i, met in node.methods:
+      newNode.methods[i].node = rewriteNode(met.node, rewrite, blockNode)
+
+  elif node.kind == NodeMethod:
+    for i, child in node.code:
+      newNode.code[i] = rewriteNode(child, rewrite, blockNode)
+
+    for i, child in node.children:
+      newNode.children[i] = rewriteNode(child, rewrite, blockNode)
+  return newNode
+
+proc generateInput(input: NimNode): NimNode =
+  let args = input[3]
+  result = quote:
+    var help {.exportc.} = RewriteRule(input: nil, output: nil, )
+
+  for i, arg in args:
+    if i != 0:
+
+  # RewriteRule()
+
+
+macro rewrite*(input: untyped, output: untyped): untyped =
+  let inputNode = generateInput(input)
+  assert output.kind == nnkStmtList and output[0][0].repr == "interlang"
+  echo input.lisprepr
+
+rewrite do (x: Int, y: Block):
+  # тук имаш някакъв сложен snippet, който включва x и y
+  x.times(y)
+do:
+  interlang:
+    forRange(variable("i"), 0, variable("x"), variable("y"))
+  # тук казваш какъв е изходния snippet
+  #for i in 0 ..< x:
+  #  y
 
