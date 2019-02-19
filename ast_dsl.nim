@@ -1,6 +1,3 @@
-import macros, strformat, strutils, sequtils
-import python_ast, python_types
-
 template pyNone*: untyped =
   Node(kind: PyNone)
 
@@ -18,8 +15,8 @@ proc expandLiteral(node: var NimNode): NimNode =
     result = quote:
       Node(kind: PyFloat, f: `node`)
   of nnkStrLit..nnkTripleStrLit:
-    result = node #quote:
-      #Node(kind: PyStr, s: `node`)
+    result = node
+      
   of nnkSym, nnkIdent:
     result = node
   else:
@@ -42,7 +39,7 @@ macro attribute*(label: static[string]): untyped =
       kind: PyAttribute,
       children: @[
         Node(kind: PyLabel, label: `base`, isFinished: true),
-        Node(kind: PyStr, s: `field`, isFinished: true)],
+        Node(kind: PyStr, text: `field`, isFinished: true)],
       isFinished: true)
 
 macro attribute*(base: untyped, attr: untyped, typ: untyped = nil): untyped =
@@ -55,7 +52,7 @@ macro attribute*(base: untyped, attr: untyped, typ: untyped = nil): untyped =
       typ: `t`,
       children: @[
         `baseL`,
-        Node(kind: PyStr, s: `attr`)],
+        Node(kind: PyStr, text: `attr`)],
       isFinished: true)
 
 macro sequence*(args: varargs[untyped]): untyped =
@@ -109,11 +106,13 @@ macro pyVarDef*(target: untyped, value: untyped): untyped =
         `v`],
       isFinished: true)
 
-macro variable*(name: untyped): untyped =
+macro variable*(name: untyped, typ: untyped = nil): untyped =
+  let t = if typ.isNil: newNilLit() else: typ
   result = quote:
     Node(
       kind: Variable,
       label: `name`,
+      typ: `t`,
       isFinished: true)
 
 macro call*(f: untyped, args: untyped, typ: untyped = nil): untyped =
@@ -124,13 +123,14 @@ macro call*(f: untyped, args: untyped, typ: untyped = nil): untyped =
       var c = child
       children[1][z] = c.expandLiteral()
       z += 1
-    if children.kind != nnkPrefix:
-      children = nnkPrefix.newTree(ident("@"), nnkBracket.newTree(children))
+  if children.kind != nnkPrefix:
+    children = nnkPrefix.newTree(ident("@"), nnkBracket.newTree(children))
   let t = if typ.isNil: newNilLit() else: typ
-  let sequenceNode = quote:
-    Node(kind: Sequence, children: `children`, isFinished: true)
+  #let sequenceNode = quote:
+  #  Node(kind: Sequence, children: `children`, isFinished: true)
+  echo children.repr
   result = quote:
-    Node(kind: Call, children: @[`f`, `sequenceNode`, Node(kind: Sequence, children: @[])], typ: `t`, isFinished: true)
+    Node(kind: Call, children: @[`f`].concat(`children`), typ: `t`, isFinished: true)
 
 template operator*(op: untyped): untyped =
   Node(

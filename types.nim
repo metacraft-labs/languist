@@ -596,7 +596,7 @@ type
   RewriteRule* = ref object
     input*:   Node
     output*:  proc(node: Node, blockNode: Node, rule: RewriteRule): Node
-    replaced*: seq[tuple[label: cstring, index: seq[int], typ: Type]]
+    replaced*: seq[tuple[label: string, typ: Type]]
     isGeneric*: bool
 
   Rewrite* = object
@@ -706,6 +706,7 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)]): NimNode =
       call = "call"
     of nnkDotExpr:
       call = "attribute"
+      sons[1] = sons[1][1]
     else:
       call = "unknown"
     result = nnkCall.newTree(ident(call))
@@ -713,12 +714,14 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)]): NimNode =
       result.add(son)
     return result
 
+include ast_dsl
+
 proc generateInput(input: NimNode): NimNode =
   let args = input[3]
   var help = ident("help")
   result = quote:
     var `help` = RewriteRule(input: nil, output: nil, replaced: @[], isGeneric: false)
-
+  result = nnkStmtList.newTree(result)
   var replaced2: seq[(string, NimNode)]
 
   for i, arg in args:
@@ -728,21 +731,17 @@ proc generateInput(input: NimNode): NimNode =
       var n = quote:
         `help`.replaced.add((
           `label`,
-          @[],
           `typ`))
       result.add(n)
       replaced2.add(($label, typ))
-      echo result.repr
 
   let h = compileNode(input[^1], replaced2)
   var n = quote:
     `help`.input = `h`
   result.add(n)
-  # n = nnkCall.newTree(nnkDotExpr.newTree(ident("rewriteList"), ident"add"), help)
   n = quote:
-    rewriteList.add(`help`)
+    rewriteList.rules.add(`help`)
   result.add(n)
-  echo result.treerepr
 
 var IntType = Type(kind: T.Simple, label: "Int")
 var FunctionType = Type(kind: T.Simple, label: "Function")
@@ -752,6 +751,7 @@ macro rewrite*(input: untyped, output: untyped): untyped =
   assert output.kind == nnkStmtList and output[0][0].repr == "interlang"
   result = inputNode
   echo result.repr
+
 
 var rewriteList  = Rewrite(rules: @[])
 
@@ -767,14 +767,14 @@ do:
 
 echo rewriteList.rules[0].input
 
-var help = RewriteRule(input: nil, output: nil, replaced: @[], isGeneric: false)
-help.input = call(attribute(variable("x", IntType), variable("times", nil)),
-                variable("y", FunctionType))
-help.replaced.add(("x", @[], IntType))
-help.replaced.add(("y", @[], FunctionType))
+# var help = RewriteRule(input: nil, output: nil, replaced: @[], isGeneric: false)
+# help.input = call(attribute(variable("x", IntType), variable("times", nil)),
+#                 variable("y", FunctionType))
+# help.replaced.add(("x", @[], IntType))
+# help.replaced.add(("y", @[], FunctionType))
 
-help.output = proc(node: Node, blockNode: BlockNode, rule: RewriteRule) =
-  let x = 
-  forRange(, 0, variable("x"), variable("y"))
-rewriteList.add(help)
+# help.output = proc(node: Node, blockNode: BlockNode, rule: RewriteRule) =
+#   let x = 
+#   forRange(, 0, variable("x"), variable("y"))
+# rewriteList.add(help)
 
