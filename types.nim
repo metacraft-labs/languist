@@ -97,7 +97,8 @@ type
     hasYield*:    bool
 
   NodeKind* = enum
-    Class, NodeMethod, Call, Variable, Int,
+    Class, NodeMethod, Call, Variable, Int, Send, Assign,
+    RubySend, RubyInt,
     PyAST, PyAdd, PyAnd, PyAnnAssign, PyAssert, PyAssign, PyAsyncFor, PyAsyncFunctionDef, PyAsyncWith, PyAttribute,
     PyAugAssign, PyAugLoad, PyAugStore, PyAwait, PyBinOp, PyBitAnd, PyBitOr, PyBitXor, PyBoolOp, PyBreak, PyBytes,
     PyCall, PyClassDef, PyCompare, PyConstant, PyContinue, PyDel, PyDelete, PyDict,
@@ -377,7 +378,7 @@ proc `[]`*(e: Env, name: string): Type =
   if result.isNil:
     raise newException(Python2NimError, "undefined $1" % name)
 
-proc `[]=`*(e: var Env, name: string, typ: Type) =
+proc `[]=`*(e: Env, name: string, typ: Type) =
   e.types[name] = typ
 
 proc hasKey*(e: Env, name: string): bool =
@@ -404,7 +405,7 @@ proc dump*(node: Node, depth: int, typ: bool = false): string =
     return "nil"
   let offset = repeat("  ", depth)
   var left = ""
-  let kind = if node.kind != Sequence: ($node.kind)[2..^1] else: $node.kind
+  let kind = $node.kind
   var typDump = if typ: "#$1" % dump(node.typ, 0) else: ""
   if typDump == "#nil":
     typDump = ""
@@ -414,6 +415,12 @@ proc dump*(node: Node, depth: int, typ: bool = false): string =
         "Int($1)$2" % [$node.i, typDump]
       of Variable:
         "Variable($1)$2" % [node.label, typDump]
+      of PyStr:
+        "PyStr($1)$2" % [node.text, typDump]
+      of NodeMethod:
+        "Method($1)\n$2\n$3" % [node.label, node.args.mapIt(dump(it, 0, typ)).join(" "), node.code.mapIt(dump(it, depth + 1, typ)).join("\n")]
+      of Class:
+        "Class($1)\n$2" % [node.label, node.methods.mapIt(dump(it.node, depth + 1, typ)).join(" ")]
       else:
         "$1$2:\n$3" % [kind, typDump, node.children.mapIt(dump(it, depth + 1, typ)).join("\n")]
   result = "$1$2" % [offset, left]
@@ -744,7 +751,7 @@ proc generateInput(input: NimNode): NimNode =
   result.add(n)
 
 var IntType = Type(kind: T.Simple, label: "Int")
-var FunctionType = Type(kind: T.Simple, label: "Function")
+var BoolType = Type(kind: T.Simple, label: "Bool")
 
 macro rewrite*(input: untyped, output: untyped): untyped =
   let inputNode = generateInput(input)
@@ -755,7 +762,7 @@ macro rewrite*(input: untyped, output: untyped): untyped =
 
 var rewriteList  = Rewrite(rules: @[])
 
-rewrite do (x: Int, y: Function):
+rewrite do (x: Int, y: Bool):
   # тук имаш някакъв сложен snippet, който включва x и y
   x.times(y)
 do:
@@ -778,3 +785,73 @@ echo rewriteList.rules[0].input
 #   forRange(, 0, variable("x"), variable("y"))
 # rewriteList.add(help)
 
+var input = Node(
+  kind: Class,
+  label: "A",
+  methods: @[
+    Field(
+      label: "b",
+      node: Node(
+        kind: NodeMethod,
+        label: "b",
+        # (arg) # self int
+        args: @[
+          input_variable("self"),
+          input_variable("arg", IntType)
+        ],
+        # puts arg.positive?
+        code: @[
+          input_call(
+            input_variable("puts"),
+            @[
+              input_send(
+                input_variable("arg"),
+                "positive?",
+                BoolType)])]))])
+
+proc analyze(node: Node, env: Env) =
+  case node.kind:
+  of Class:
+    for met in node.methods.mitems:
+      analyze(met.node, env)
+  of NodeMethod:
+    var args = initTable[string, Type]()
+    for arg in node.args:
+      args[arg.label] = arg.typ
+    var met = childEnv(env, node.label, args, node.returnType)
+    for subNode in node.code:
+      analyze(subNode, met)
+  of Send:
+    analyze(node.children[0], env)
+    for arg in node.children[2 .. ^1]:
+      analyze(arg, env)
+  of Call:
+    analyze(node.children[0], env)
+    for arg in node.children[1 .. ^1]:
+      analyze(arg, env)
+  of Variable:
+    node.typ = env.get(node.label)
+  of Int:
+    node.typ = IntType
+  of Assign:
+    analyze(node.children[1], env)
+    node.children[0].typ = node.children[1].typ
+    if node.children[0].kind == Variable:
+      env[node.children[0].label] = node.children[0].typ
+  of PyStr, PyBytes:
+    discard
+  of PyInt, PyFloat, PyChar, PyHugeInt, PyAssign, PyFunctionDef, PyClassDef:
+    discard
+  else:
+    for child in node.children:
+      analyze(child, env)
+
+
+
+
+echo dump(input, 0, true)
+var env = Env(parent: nil, types: initTable[string, Type]())
+
+input.analyze(env)
+
+echo dump(input, 0, true)

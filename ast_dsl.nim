@@ -115,6 +115,48 @@ macro variable*(name: untyped, typ: untyped = nil): untyped =
       typ: `t`,
       isFinished: true)
 
+macro input_variable*(name: untyped, typ: untyped = nil): untyped =
+  let t = if typ.isNil: newNilLit() else: typ
+  result = quote:
+    Node(
+      kind: Variable,
+      label: `name`,
+      typ: `t`)
+
+macro input_send*(receiver: untyped, call: untyped, args: untyped, typ: untyped): untyped =
+  var children = args
+  var z = 0
+  if children.kind == nnkPrefix:
+    for child in children[1]:
+      var c = child
+      children[1][z] = c.expandLiteral()
+      z += 1
+  if children.kind != nnkPrefix:
+    children = nnkPrefix.newTree(ident("@"), nnkBracket.newTree(children))
+  let t = if typ.isNil: newNilLit() else: typ
+  result = quote:
+    Node(kind: Send, children: @[`receiver`, Node(kind: PyStr, label: `call`)].concat(`children`), typ: `t`)
+  
+macro input_send*(receiver: untyped, call: untyped, typ: untyped): untyped =
+  var children = nnkPrefix.newTree(ident("@"), nnkBracket.newTree())
+  let t = if typ.isNil: newNilLit() else: typ
+  result = quote:
+    Node(kind: Send, children: @[`receiver`, Node(kind: PyStr, text: `call`)], typ: `t`)
+
+macro input_call*(f: untyped, args: untyped, typ: untyped = nil): untyped =
+  var children = args
+  var z = 0
+  if children.kind == nnkPrefix:
+    for child in children[1]:
+      var c = child
+      children[1][z] = c.expandLiteral()
+      z += 1
+  if children.kind != nnkPrefix:
+    children = nnkPrefix.newTree(ident("@"), nnkBracket.newTree(children))
+  let t = if typ.isNil: newNilLit() else: typ
+  result = quote:
+    Node(kind: Call, children: @[`f`].concat(`children`), typ: `t`)
+
 macro call*(f: untyped, args: untyped, typ: untyped = nil): untyped =
   var children = args
   var z = 0
@@ -126,8 +168,6 @@ macro call*(f: untyped, args: untyped, typ: untyped = nil): untyped =
   if children.kind != nnkPrefix:
     children = nnkPrefix.newTree(ident("@"), nnkBracket.newTree(children))
   let t = if typ.isNil: newNilLit() else: typ
-  #let sequenceNode = quote:
-  #  Node(kind: Sequence, children: `children`, isFinished: true)
   echo children.repr
   result = quote:
     Node(kind: Call, children: @[`f`].concat(`children`), typ: `t`, isFinished: true)
