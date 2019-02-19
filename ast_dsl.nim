@@ -143,6 +143,12 @@ macro input_send*(receiver: untyped, call: untyped, typ: untyped): untyped =
   result = quote:
     Node(kind: Send, children: @[`receiver`, Node(kind: PyStr, text: `call`)], typ: `t`)
 
+macro send*(receiver: untyped, call: untyped, typ: untyped = nil): untyped =
+  var children = nnkPrefix.newTree(ident("@"), nnkBracket.newTree())
+  let t = if typ.isNil: newNilLit() else: typ
+  result = quote:
+    Node(kind: Send, children: @[`receiver`, Node(kind: PyStr, text: `call`)], typ: `t`, isFinished: true)
+
 macro input_call*(f: untyped, args: untyped, typ: untyped = nil): untyped =
   var children = args
   var z = 0

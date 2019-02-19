@@ -527,6 +527,11 @@ proc deepCopy*(a: Node): Node =
     result.isMethod = a.isMethod
     result.calls = a.calls
     result.isGeneric = a.isGeneric
+  of Class:
+    result.methods = a.methods.mapIt(Field(label: it.label, node: deepCopy(it.node)))
+  of NodeMethod:
+    result.args = a.args.mapIt(deepCopy(it))
+    result.code = a.code.mapIt(deepCopy(it))
   else:
     discard
   result.children = @[]
@@ -602,7 +607,8 @@ proc startPath*(db: TraceDB): string =
 type
   RewriteRule* = ref object
     input*:   Node
-    output*:  proc(node: Node, blockNode: Node, rule: RewriteRule): Node
+    output*:  proc(node: Node, args: Table[string, Node], blockNode: Node, rule: RewriteRule): Node
+    args*:    seq[seq[int]]
     replaced*: seq[tuple[label: string, typ: Type]]
     isGeneric*: bool
 
@@ -617,6 +623,8 @@ type
 # output = the general function which does it based on clojure rewrite list too
 
 proc find(l: Node, r: Node): bool =
+  echo "l", l
+  echo "r", " ", r
   if l.kind == Variable:
     if not l.typ.isNil and l.typ != r.typ:
       return false
@@ -653,13 +661,25 @@ proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
       result.add(rule)
 
 proc replace(rule: RewriteRule, node: Node, blockNode: Node): Node =
-  result = rule.output(node, blockNode, rule)
+  var args = initTable[string, Node]()
+  for i in 0 ..< rule.replaced.len:
+    let r = rule.replaced[i].label
+    let arg = rule.args[i]
+    var k = 0
+    var subNode = node
+    while k < arg.len:
+      subNode = subNode.children[k]
+      k += 1
+    args[r] = subNode
+  result = rule.output(node, args, blockNode, rule)
+  echo "res", result
   result.isFinished = true
 
 proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node): Node
 
 proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node): Node =
   var b: seq[RewriteRule] = @[]
+  echo "node"
   if not node.isFinished:
     b = rewrite.find(node)
   var newNode = node
@@ -684,10 +704,13 @@ proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node): Node =
 
     for i, child in node.children:
       newNode.children[i] = rewriteNode(child, rewrite, blockNode)
+  else:
+    for i, child in node.children:
+      newNode.children[i] = rewriteNode(child, rewrite, blockNode)
   return newNode
 
 proc compileNode(node: NimNode, replaced: seq[(string, NimNode)]): NimNode =
-  case node.kind:
+  case node.kind
   of nnkCharLit..nnkUInt64Lit:
     return node
   of nnkFloatLit..nnkFloat128Lit:
@@ -711,6 +734,15 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)]): NimNode =
     case node.kind:
     of nnkCall:
       call = "call"
+      if node[0].kind == nnkDotExpr:
+        call = "send"
+        var oldSons = sons
+        sons = @[]
+        sons.add(oldSons[0][1])
+        sons.add(oldSons[0][2])
+        sons = sons.concat(oldSons[1 .. ^1])
+        if ($sons[1]).startsWith("is_"):
+          sons[1] = newLit(($(sons[1]))[3 .. ^1] & "?")
     of nnkDotExpr:
       call = "attribute"
       sons[1] = sons[1][1]
@@ -746,6 +778,10 @@ proc generateInput(input: NimNode): NimNode =
   var n = quote:
     `help`.input = `h`
   result.add(n)
+  # TODO
+  n = quote:
+    `help`.args = @[@[0]]
+  result.add(n)
   n = quote:
     rewriteList.rules.add(`help`)
   result.add(n)
@@ -753,37 +789,77 @@ proc generateInput(input: NimNode): NimNode =
 var IntType = Type(kind: T.Simple, label: "Int")
 var BoolType = Type(kind: T.Simple, label: "Bool")
 
+dumpAstGen:
+  b = proc(node: int): int = 0
+
 macro rewrite*(input: untyped, output: untyped): untyped =
   let inputNode = generateInput(input)
   assert output.kind == nnkStmtList and output[0][0].repr == "interlang"
   result = inputNode
+  let help = ident("help")
+  let code = output[0][1]
+  let outputCall = nnkLambda.newTree(
+    newEmptyNode(),
+    newEmptyNode(),
+    newEmptyNode(),
+    nnkFormalParams.newTree(
+      newIdentNode("Node"),
+      nnkIdentDefs.newTree(
+        newIdentNode("node"),
+        newIdentNode("Node"),
+        newEmptyNode()
+      ),
+      nnkIdentDefs.newTree(
+        newIdentNode("args"),
+        nnkBracketExpr.newTree(
+          newIdentNode("Table"),
+          newIdentNode("string"),
+          newIdentNode("Node")
+        ),
+        newEmptyNode()
+      ),
+      nnkIdentDefs.newTree(
+        newIdentNode("blockNode"),
+        newIdentNode("Node"),
+        newEmptyNode()
+      ),
+      nnkIdentDefs.newTree(
+        newIdentNode("rule"),
+        newIdentNode("RewriteRule"),
+        newEmptyNode()
+      )
+    ),
+    newEmptyNode(),
+    newEmptyNode(),
+    code
+  )
+
+
+  var n = quote:
+    `help`.output = `outputCall`
+  result.add(n)
   echo result.repr
 
 
 var rewriteList  = Rewrite(rules: @[])
 
-rewrite do (x: Int, y: Bool):
-  # тук имаш някакъв сложен snippet, който включва x и y
-  x.times(y)
+# rewrite do (x: Int, y: Bool):
+#   # тук имаш някакъв сложен snippet, който включва x и y
+#   x.times(y)
+# do:
+#   interlang:
+#     forRange(variable("i"), 0, variable("x"), variable("y"))
+#   # тук казваш какъв е изходния snippet
+#   #for i in 0 ..< x:
+#   #  y
+
+rewrite do (x: Int):
+  x.is_positive()
 do:
   interlang:
-    forRange(variable("i"), 0, variable("x"), variable("y"))
-  # тук казваш какъв е изходния snippet
-  #for i in 0 ..< x:
-  #  y
+    compare(operator(">"), args["x"], 0, BoolType)
 
 echo rewriteList.rules[0].input
-
-# var help = RewriteRule(input: nil, output: nil, replaced: @[], isGeneric: false)
-# help.input = call(attribute(variable("x", IntType), variable("times", nil)),
-#                 variable("y", FunctionType))
-# help.replaced.add(("x", @[], IntType))
-# help.replaced.add(("y", @[], FunctionType))
-
-# help.output = proc(node: Node, blockNode: BlockNode, rule: RewriteRule) =
-#   let x = 
-#   forRange(, 0, variable("x"), variable("y"))
-# rewriteList.add(help)
 
 var input = Node(
   kind: Class,
@@ -854,4 +930,18 @@ var env = Env(parent: nil, types: initTable[string, Type]())
 
 input.analyze(env)
 
-echo dump(input, 0, true)
+proc rewriteProgram(node: Node, rewrite: Rewrite): Node =
+  case node.kind:
+  of Class:
+    result = node.deepCopy()
+    for i, met in node.methods:
+      var newCode: seq[Node] = @[]
+      for element in met.node.code:
+        newCode.add(rewriteNode(element, rewrite, met.node))
+      echo result.methods
+      result.methods[i].node.code = newCode
+  else:
+    discard
+
+input = rewriteProgram(input, rewriteList)
+echo input
