@@ -219,7 +219,7 @@ class InterTranslator
         # value[:args] = args
         # value[:code] 
         @inter_ast[:method_lines][node.loc.line] = value
-        return value
+        return value.tap { |t| t[:line] = node.loc.line; t[:column] = node.loc.column }
       end
       value = {kind: get_kind(node.type), children: node.children.map { |it| process_node it }, typ: nil}
       if node.type == :send
@@ -241,7 +241,7 @@ class InterTranslator
         end
       else
         value
-      end
+      end.tap { |t| if !node.nil?; t[:line] = node.loc.line; t[:column] = node.loc.column; end }
     elsif node.class == Integer
       {kind: :int, i: node, typ: nil}
     elsif node.class == String
@@ -390,7 +390,7 @@ def compile_child child
       else
         {kind: :attribute, children: child[:children].map { |l| compile_child l }, typ: child[:typ]}
       end
-    end
+    end.tap { |t| t[:line] = child[:line]; t[:column] = child[:column] }
   elsif child.key?(:children)
     res = child
     res[:children] = child[:children].map { |it| compile_child it }
