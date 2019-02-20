@@ -48,8 +48,10 @@ t2 = TracePoint.new(:return) do |tp|
       end
     end
   end
-  if $inter_traces[tp.path][:method_lines].key?(line)
-    $inter_traces[tp.path][:method_lines][line][:return_type] = typ
+  method_line = $call_lines.pop
+  p $inter_traces[tp.path][:method_lines].keys
+  if $inter_traces[tp.path][:method_lines].key?(method_line)
+    $inter_traces[tp.path][:method_lines][method_line][:return_type] = typ
   end
 end
 
