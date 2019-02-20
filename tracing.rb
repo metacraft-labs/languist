@@ -24,7 +24,8 @@ def trace_calls(data)
 end
 
 t = TracePoint.new(:call, :c_call) do |tp|
-  if !tp.path.start_with?("/usr/lib/ruby/") && tp.path != "tracing.rb" && tp.defined_class != TracePoint && tp.defined_class != Kernel && tp.method_id != :disable && tp.method_id != :inherited && tp.defined_class != Class && tp.method_id != :method_added
+  # !tp.path.start_with?("/usr/lib/ruby/")
+  if tp.path != "tracing.rb" && tp.defined_class != TracePoint && tp.defined_class != Kernel && tp.method_id != :disable && tp.method_id != :inherited && tp.defined_class != Class && tp.method_id != :method_added
     if !$inter_traces.key?(tp.path)
       $inter_traces[tp.path] = generate_ast(tp.path)
     end
@@ -42,14 +43,12 @@ t2 = TracePoint.new(:return) do |tp|
   typ = load_type(tp.return_value.class)
   if $inter_traces.key?(path) && $inter_traces[path][:lines].key?(line)
     $inter_traces[path][:lines][line].each do |a|
-      p tp.method_id
-      if a[:children][1][:kind] == :variable && a[:children][1][:label] == tp.method_id
+      if a[:children][1][:kind] == :Variable && a[:children][1][:label] == tp.method_id
         a[:typ] = typ
       end
     end
   end
   method_line = $call_lines.pop
-  p $inter_traces[tp.path][:method_lines].keys
   if $inter_traces[tp.path][:method_lines].key?(method_line)
     $inter_traces[tp.path][:method_lines][method_line][:return_type] = typ
   end
@@ -90,44 +89,44 @@ end
 
 def load_type(arg)
   if arg.nil?
-    return {kind: :nil}
+    return {kind: :Simple, label: "Void"}
   end
   res = if arg == Integer
-    {kind: :int}
+    {kind: :Simple, label: "Int"}
   elsif arg == NilClass
-    {kind: :nil}
+    {kind: :Simple, label: "Void"}
   elsif arg == String
-    {kind: :string}
+    {kind: :Simple, label: "String"}
   else
-    {kind: :simple, label: arg.name}
+    {kind: :Simple, label: arg.name}
   end
-  if res[:kind] == :object
+  if res[:kind] == :Object
     $inter_types[res[:label]] = res
   end
   res
 end
 
 def load_method(args, return_type)
-  {kind: :method, args: args.map { |arg| load_type(arg) }, return_type: load_type(return_type)}
+  {kind: :NodeMethod, args: args.map { |arg| load_type(arg) }, return_type: load_type(return_type)}
 end
 
 
 def union(left, right)
   case left[:kind]
-  when :method
+  when :Method
     same = left[:args] == right[:args] and left[:return_type] == right[:return_type]
     if same
       [left, true]
     else
-      [{kind: :method_overload, overloads: [left, right]}, false]
+      [{kind: :MethodOverload, overloads: [left, right]}, false]
     end
-  when :method_overload
+  when :MethodOverload
     p left
-  when :simple
+  when :Simple
     if left[:label] == right[:label]
       [left, true]
     else
-      [{kind: union, variants: [left, right]}, true]
+      [{kind: :Union, variants: [left, right]}, true]
     end
   end
 end
@@ -176,9 +175,9 @@ INTER_METHOD = 1
 INTER_CALL = 2
 INTER_VARIABLE = 3
 
-PATTERN_STDLIB = {puts: -> a { {kind: INTER_CALL, children: [{kind: INTER_VARIABLE, label: "echo"}] + a , typ: {kind: :nil} } } }
+PATTERN_STDLIB = {puts: -> a { {kind: INTER_CALL, children: [{kind: INTER_VARIABLE, label: "echo"}] + a , typ: {kind: :Nil} } } }
 
-KINDS = {lvasgn: :assign}
+KINDS = {lvasgn: :Assign}
 
 class InterTranslator
   def initialize(ast)
@@ -205,7 +204,7 @@ class InterTranslator
     if KINDS.key?(type)
       KINDS[type]
     else
-      :"ruby_#{type}"
+      :"Ruby#{type.capitalize}"
     end
   end
 
@@ -215,8 +214,8 @@ class InterTranslator
         return send :"process_#{node.type}", node
       end
       if node.type == :def
-        value = {kind: :node_method, label: {typ: :variable, label: node.children[0]}, args: [], code: [], typ: nil, return_type: nil}
-        value[:args] = [{kind: :variable, label: :self, typ: nil}] + node.children[1].children.map { |it| process_node it }
+        value = {kind: :NodeMethod, label: {typ: :Variable, label: node.children[0]}, args: [], code: [], typ: nil, return_type: nil}
+        value[:args] = [{kind: :Variable, label: :self, typ: nil}] + node.children[1].children.map { |it| process_node it }
         value[:code] = node.children[2 .. -1].map { |it| process_node it }
         # value[:args] = args
         # value[:code] 
@@ -225,12 +224,8 @@ class InterTranslator
       end
       value = {kind: get_kind(node.type), children: node.children.map { |it| process_node it }, typ: nil}
       if node.type == :send
-        # p value
-        # p value[:children][0][:kind] == :ruby_const
-        # p value[:children][1][:kind] == :variable
-        # p value[:children][1][:label] == :new
-        if value[:children][0][:kind] == :ruby_const && value[:children][1][:kind] == :variable && value[:children][1][:label] == :new
-          value = {kind: :new, children: [{kind: :variable, label: value[:children][0][:label]}] + value[:children][2 .. -1]}          
+        if value[:children][0][:kind] == :RubyConst && value[:children][1][:kind] == :Variable && value[:children][1][:label] == :new
+          value = {kind: :New, children: [{kind: :Variable, label: value[:children][0][:label]}] + value[:children][2 .. -1]}          
         end
         begin
           if !@inter_ast[:lines].key?(node.loc.line)
@@ -239,48 +234,48 @@ class InterTranslator
           @inter_ast[:lines][node.loc.line].push(value)
           value
         rescue
-          {kind: :nil}
+          {kind: :Nil}
         end
       else
         value
       end.tap { |t| if !node.nil?; t[:line] = node.loc.line; t[:column] = node.loc.column; end }
     elsif node.class == Integer
-      {kind: :int, i: node, typ: nil}
+      {kind: :Int, i: node, typ: nil}
     elsif node.class == String
-      {kind: :string, text: node, typ: nil}
+      {kind: :String, text: node, typ: nil}
     elsif node.class == Symbol
-      {kind: :variable, label: node, typ: nil}
+      {kind: :Variable, label: node, typ: nil}
     elsif node.nil?
-      {kind: :nil, typ: nil}
+      {kind: :Nil, typ: nil}
     end
   end
 
   def process_const(node)
-    {kind: :ruby_const, label: node.children[1]}
+    {kind: :RubyConst, label: node.children[1]}
   end
 
   def process_int(node)
-    {kind: :int, i: node.children[0]}
+    {kind: :Int, i: node.children[0]}
   end
 
   def process_str(node)
-    {kind: :str, text: node.children[0]}
+    {kind: :String, text: node.children[0]}
   end
 
   def process_ivar(node)
-    {kind: :attribute, children: [{kind: :self}, {kind: :variable, label: node.children[0]}]}
+    {kind: :Attribute, children: [{kind: :Self}, {kind: :Variable, label: node.children[0]}]}
   end
 
   def process_lvar(node)
-    {kind: :variable, label: node.children[0]}
+    {kind: :Variable, label: node.children[0]}
   end
 
   def process_nil(node)
-    {kind: :nil}
+    {kind: :Nil}
   end
 
   def process_arg(node)
-    {kind: :variable, label: node.children[0]}
+    {kind: :Variable, label: node.children[0]}
   end
 end
 
@@ -379,25 +374,30 @@ def generate_path(path, methods, traces, inter_traces)
 end
 
 def compile_child child
-  if child[:kind] == :ruby_send
-    if child[:children][0][:kind] == :nil
+  if child[:kind] == :RubySend
+    if child[:children][0][:kind] == :Nil
       if !child[:typ].nil? || !child[:children][2].nil?
-        {kind: :call, children: child[:children][1 .. -1].map { |l| compile_child l }, typ: child[:typ]}
+        {kind: :Call, children: child[:children][1 .. -1].map { |l| compile_child l }, typ: child[:typ]}
       else
         child[:children][1]
       end
     else
       if !child[:typ].nil? || !child[:children][2].nil?
-        {kind: :send, children: child[:children].map { |l| compile_child l }, typ: child[:typ]}
+        {kind: :Send, children: child[:children].map { |l| compile_child l }, typ: child[:typ]}
       else
-        {kind: :attribute, children: child[:children].map { |l| compile_child l }, typ: child[:typ]}
+        {kind: :Attribute, children: child[:children].map { |l| compile_child l }, typ: child[:typ]}
       end
     end.tap { |t| t[:line] = child[:line]; t[:column] = child[:column] }
   elsif child.key?(:children)
     res = child
     res[:children] = child[:children].map { |it| compile_child it }
     res
+  elsif child.key?(:code)
+    res = child
+    res[:code] = child[:code].map { |it| compile_child it }
+    res
   else
+    p child
     child
   end
 end

@@ -336,12 +336,12 @@ proc generateFloat(generator: var Generator, node: Node): PNode =
 proc generateAttribute(generator: var Generator, node: Node): PNode =
   ensure(Attribute)
 
-  assert node[1].kind == PyStr
+  assert node[1].kind == String
 
   result = nkDotExpr.newTree(emitNode(node[0]), generateIdent(node[1].text))
 
 proc generateStr(generator: var Generator, node: Node): PNode =
-  ensure(PyStr)
+  ensure(String)
 
   result = nkStrLit.newNode()
   result.strVal = node.text
@@ -477,11 +477,6 @@ proc generateInfix(generator: var Generator, node: Node): PNode =
 proc generateAccQuoted(generator: var Generator, node: Node): PNode =
   result = nkAccQuoted.newTree(emitNode(node[0]))
 
-proc generateBytes(generator: var Generator, node: Node): PNode =
-  var r = nkRStrLit.newNode()
-  r.strVal = node.text
-  result = nkCallStrLit.newTree(generateIdent("cstring"), r)
-
 proc generateYield(generator: var Generator, node: Node): PNode =
   result = nkYieldStmt.newTree(emitNode(node[0]))
 
@@ -527,7 +522,7 @@ proc generateSlice(generator: var Generator, node: Node): PNode =
 
 proc generateCommentedOut(generator: var Generator, node: Node): PNode =
   result = newNode(nkEmpty)
-  if node[0].kind == PyStr:
+  if node[0].kind == String:
     result.comment = fmt"py2nim can't generate code for{endl}{node[0].text}"
 
 proc generateContinue(generator: var Generator, node: Node): PNode =
@@ -565,7 +560,7 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateFloat(node)
   of Attribute:
     result = generator.generateAttribute(node)
-  of PyStr:
+  of String:
     result = generator.generateStr(node)
   of PyBinOp:
     result = generator.generateBinOp(node)
@@ -608,8 +603,6 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateInfix(node)
   of NimAccQuoted:
     result = generator.generateAccQuoted(node)
-  of PyBytes:
-    result = generator.generateBytes(node)
   of PyYield:
     result = generator.generateYield(node)
   of PyBreak:

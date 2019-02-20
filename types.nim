@@ -3,7 +3,7 @@ import
   compiler/[ast, astalgo, idents, msgs, renderer, lineinfos]
 
 type
-  T* {.pure.} = enum 
+  T* = enum 
     Simple,
     Method,
     MethodOverload,
@@ -85,7 +85,8 @@ type
                                                           # for that idiomatic one, toggle collision to true
   TraceDB* = ref object
     root:         JsonNode
-    modules*:     seq[string]
+    paths*:       seq[string]
+    modules*:     seq[Module]
     types*:       Table[string, Type]
     sysPath*:     seq[string]
     projectDir*:  string
@@ -101,7 +102,7 @@ type
     hasYield*:    bool
 
   NodeKind* = enum
-    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute,
+    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float,
     RubySend, RubyInt, 
     PyAST, PyAdd, PyAnd, PyAnnAssign, PyAssert, PyAssign, PyAsyncFor, PyAsyncFunctionDef, PyAsyncWith, PyAttribute,
     PyAugAssign, PyAugLoad, PyAugStore, PyAwait, PyBinOp, PyBitAnd, PyBitOr, PyBitXor, PyBoolOp, PyBreak, PyBytes,
@@ -130,7 +131,7 @@ type
     isFinished*: bool
     isReplace*: bool
     case kind*: NodeKind:
-    of PyStr, PyBytes:
+    of String:
       text*: string
     of Int, PyInt:
       i*: int
@@ -171,7 +172,7 @@ type
     name*: string
     imports*: seq[Node] # probably Import and Assign
     types*: seq[Node] # probably ClassDef
-    methods*: seq[Node] # probably FunctionDef
+    classes*: seq[Node] # probably FunctionDef
     main*: seq[Node] # other top level stuff
   
   TypeDependency* = object
@@ -518,9 +519,9 @@ proc deepCopy*(a: Node): Node =
     return nil
   result = genKind(Node, a.kind)
   case a.kind:
-  of PyStr, PyBytes:
+  of String:
     result.text = a.text
-  of PyInt:
+  of Int, PyInt:
     result.i = a.i
   of PyFloat:
     result.f = a.f
@@ -574,42 +575,117 @@ proc translateIdentifier*(label: string, identifierCollisions: HashSet[string]):
   else:
     return label
 
-proc load*(dbfile: string): TraceDB =
+var IntType = Type(kind: T.Simple, label: "Int")
+var BoolType = Type(kind: T.Simple, label: "Bool")
+var AnyType = Type(kind: T.Any)
+var VoidType = Type(kind: T.Simple, label: "Void")
+
+proc loadType*(typ: JsonNode): Type =
+  if typ{"kind"}.isNil:
+    return nil
+  var kind = parseEnum[T](typ{"kind"}.getStr())
+  result = genKind(Type, kind)
+  case kind:
+  of T.Method:
+    result.args = @[]
+    # result.variables = @[]
+    for v in typ{"args"}:
+      var variable = loadType(v)
+      result.args.add(variable)
+    # for v in typ{"variables"}:
+    #   var variable = PyVariable(name: ($v{"name"})[1..^2])
+    #   variable.typ = importType(v{"type"})
+    #   result.variables.add(variable)
+    if typ{"returnType"}.isNil:
+      result.returnType = VoidType
+    else:
+      result.returnType = loadType(typ{"returnType"})
+  of Object:
+    result.fields = initTable[string, Type]()
+    if typ{"base"} == nil:
+      result.base = nil
+    else:
+      result.base = loadType(typ{"base"})
+    # for field in typ{"fields"}:
+    #   var variable = PyVar(name: ($field{"label"})[1..^2])
+    #   variable.typ = importType(field{"type"})
+    #   result.fields.add(variable)
+  of T.Simple:
+    result.label = typ{"label"}.getStr()
+  else:
+    discard
+  if result.kind != T.Simple:
+    if typ{"label"}.isNil:
+      result.label = ""
+    else:
+      result.label = typ{"label"}.getStr()
+
+proc loadNode*(m: JsonNode): Node =
+  if m{"kind"}.isNil:
+    return nil
+  echo parseEnum[NodeKind]("Assign")
+  echo m{"kind"}.getStr() == "Assign"
+  var kind = parseEnum[NodeKind](m{"kind"}.getStr())
+  
+  case kind:
+  of Variable, PyOperator:
+    result = Node(kind: Variable, label: m{"label"}.getStr())
+  of Int:
+    result = Node(kind: Int, i: m{"i"}.getInt())
+  of String:
+    result = Node(kind: String, text: m{"text"}.getStr())
+  else:
+    result = genKind(Node, kind)
+    if m{"children"}.isNil:
+      discard
+    else:
+      result.children = m{"children"}.mapIt(loadNode(it))
+      if not m{"label"}.isNil:
+        result.label = m{"label"}.getStr()
+
+  # Faith
+  result.typ = loadType(m{"typ"})
+
+proc loadMethod*(m: JsonNode): Node =
+  result = Node(kind: NodeMethod)
+  result.label = m{"label"}{"label"}.getStr()
+  result.args = m{"args"}.mapIt(loadNode(it))
+  result.code = m{"code"}.mapIt(loadNode(it))
+  result.typ = loadType(m{"typ"})
+
+proc loadClass*(m: JsonNode): Node =
+  result = Node(kind: Class)
+  result.label = m{"label"}.getStr()
+  result.fields = m{"fields"}.mapIt(Field(label: it{"label"}.getStr(), node: it{"node"}.loadNode()))
+  result.methods = m{"methods"}.mapIt(Field(label: it{"label"}.getStr(), node: it{"node"}.loadMethod()))
+  result.typ = loadType(m{"typ"})  
+
+proc loadModule*(m: JsonNode): Module =
+  result = Module()
+  result.imports = @[]
+  result.main = m{"main"}.mapIt(loadNode(it))
+  result.classes = m{"classes"}.mapIt(loadClass(it))
+
+proc load*(file: string): TraceDB =
   new(result)
-  result.root = parseJson(readFile(dbfile))
+  result.root = parseJson(readFile(file))
   result.types = initTable[string, Type]()
   result.sysPath = @[]
+  result.paths = @[]
   result.modules = @[]
-  result.projectDir = result.root{"@projectDir"}.getStr()
-  result.package = result.projectDir.rsplit("/", 1)[1]
-  for label, trace in result.root:
-    if label == "@types":
-      for childLabel, child in trace:
-        if childLabel != "@path":
-          # echo childLabel
-          var typ: Type # = toType(importType(child))
-          typ.fullLabel = childLabel
-          if typ.kind == T.MethodOverload:
-            for overload in typ.overloads.mitems:
-              overload.fullLabel = childLabel
-          result.types[childLabel] = typ
-        else:
-          result.sysPath = child.mapIt(($it)[1..^2])
-    else:
-      result.modules.add(label)
+  # result.projectDir = result.root{"@projectDir"}.getStr()
+  # result.package = result.projectDir.rsplit("/", 1)[1]
+  for label, m in result.root:
+    result.paths.add(label)
+    result.modules.add(loadModule(m))
 
 
-proc loadAst*(db: TraceDB, filename: string): Node =
-  # XXX: Perhaps, this could be cached
-  # echo filename
-  # result = importAst(db.root[filename]["ast"])
-  discard
-
+  
 proc startPath*(db: TraceDB): string =
   # TODO: smarter
   result = ""
   var maybeResult = ""
-  for module in db.modules:
+  for module in db.paths:
     if module.startsWith(db.projectDir):
       if module.endsWith("constants.py"):
         result = module
@@ -648,7 +724,7 @@ proc find(l: Node, r: Node): bool =
   case l.kind:
   of Variable:
     result = l.label == r.label
-  of PyStr, PyBytes:
+  of String:
     result = l.text == r.text
   of Int, PyInt:
     result = l.i == r.i
@@ -844,10 +920,6 @@ proc generateInput(input: NimNode): NimNode =
     rewriteList.rules.add(`help`)
   result.add(n)
 
-var IntType = Type(kind: T.Simple, label: "Int")
-var BoolType = Type(kind: T.Simple, label: "Bool")
-var AnyType = Type(kind: T.Any)
-var VoidType = Type(kind: T.Simple, label: "Void")
 
 macro rewrite*(input: untyped, output: untyped): untyped =
   let inputNode = generateInput(input)
@@ -994,7 +1066,7 @@ proc analyze(node: Node, env: Env) =
     node.children[0].typ = node.children[1].typ
     if node.children[0].kind == Variable:
       env[node.children[0].label] = node.children[0].typ
-  of PyStr, PyBytes:
+  of String:
     discard
   of PyInt, PyFloat, PyChar, PyHugeInt, PyAssign, PyFunctionDef, PyClassDef:
     discard
@@ -1003,8 +1075,8 @@ proc analyze(node: Node, env: Env) =
       analyze(child, env)
 
 
-
-
+var traceDB = load("lang_traces.json")
+input = traceDB.modules[0].classes[0]
 var env = Env(parent: nil, types: initTable[string, Type]())
 
 input.analyze(env)

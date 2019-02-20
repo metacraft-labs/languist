@@ -39,7 +39,7 @@ macro attribute*(label: static[string]): untyped =
       kind: Attribute,
       children: @[
         Node(kind: PyLabel, label: `base`, isFinished: true),
-        Node(kind: PyStr, text: `field`, isFinished: true)],
+        Node(kind: String, text: `field`, isFinished: true)],
       isFinished: true)
 
 macro attribute*(base: untyped, attr: untyped, typ: untyped = nil): untyped =
@@ -52,7 +52,7 @@ macro attribute*(base: untyped, attr: untyped, typ: untyped = nil): untyped =
       typ: `t`,
       children: @[
         `baseL`,
-        Node(kind: PyStr, text: `attr`)],
+        Node(kind: String, text: `attr`)],
       isFinished: true)
 
 macro sequence*(args: varargs[untyped]): untyped =
@@ -135,19 +135,19 @@ macro input_send*(receiver: untyped, call: untyped, args: untyped, typ: untyped)
     children = nnkPrefix.newTree(ident("@"), nnkBracket.newTree(children))
   let t = if typ.isNil: newNilLit() else: typ
   result = quote:
-    Node(kind: Send, children: @[`receiver`, Node(kind: PyStr, label: `call`)].concat(`children`), typ: `t`)
+    Node(kind: Send, children: @[`receiver`, Node(kind: String, label: `call`)].concat(`children`), typ: `t`)
   
 macro input_send*(receiver: untyped, call: untyped, typ: untyped): untyped =
   var children = nnkPrefix.newTree(ident("@"), nnkBracket.newTree())
   let t = if typ.isNil: newNilLit() else: typ
   result = quote:
-    Node(kind: Send, children: @[`receiver`, Node(kind: PyStr, text: `call`)], typ: `t`)
+    Node(kind: Send, children: @[`receiver`, Node(kind: String, text: `call`)], typ: `t`)
 
 macro send*(receiver: untyped, call: untyped, typ: untyped = nil): untyped =
   var children = nnkPrefix.newTree(ident("@"), nnkBracket.newTree())
   let t = if typ.isNil: newNilLit() else: typ
   result = quote:
-    Node(kind: Send, children: @[`receiver`, Node(kind: PyStr, text: `call`)], typ: `t`, isFinished: true)
+    Node(kind: Send, children: @[`receiver`, Node(kind: String, text: `call`)], typ: `t`, isFinished: true)
 
 macro input_call*(f: untyped, args: untyped, typ: untyped = nil): untyped =
   var children = args
