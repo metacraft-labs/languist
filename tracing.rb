@@ -5,15 +5,14 @@ require 'ast'
 $trace = []
 $lines = []
 $inter_traces = {}
+$inter_types = {}
 $call_lines = []
 
 def trace_calls(data)
   new_trace = [data.path, data.lineno, data.defined_class, data.method_id, data.binding.local_variables.map { |a| [a, data.binding.local_variable_get(a).class]}, :input, nil]
   $call_lines.push(data.lineno)
-  if data.lineno == 2
-    p $call_lines, $inter_traces[data.path][:method_lines]
-  end
   if $inter_traces[data.path][:method_lines].key?(data.lineno)
+    p data.lineno
     $inter_traces[data.path][:method_lines][data.lineno][:args].each do |arg|
       if arg[:label] == :self
         arg[:typ] = load_type(data.binding.receiver.class)
@@ -25,8 +24,7 @@ def trace_calls(data)
 end
 
 t = TracePoint.new(:call, :c_call) do |tp|
-  if tp.defined_class != TracePoint && tp.defined_class != Kernel && tp.method_id != :disable && tp.method_id != :inherited && tp.defined_class != Class && tp.method_id != :method_added
-    p "in", tp.method_id
+  if !tp.path.start_with?("/usr/lib/ruby/") && tp.path != "tracing.rb" && tp.defined_class != TracePoint && tp.defined_class != Kernel && tp.method_id != :disable && tp.method_id != :inherited && tp.defined_class != Class && tp.method_id != :method_added
     if !$inter_traces.key?(tp.path)
       $inter_traces[tp.path] = generate_ast(tp.path)
     end
@@ -35,12 +33,16 @@ t = TracePoint.new(:call, :c_call) do |tp|
 end
 
 t2 = TracePoint.new(:return) do |tp|
-  p "return"
+  if tp.path == "tracing.rb"
+    break
+  end
   path, line, *_ = caller[1].split(':')
-  line = $call_lines.pop
+  line = line.to_i
+  # line = $call_lines.pop
   typ = load_type(tp.return_value.class)
   if $inter_traces.key?(path) && $inter_traces[path][:lines].key?(line)
     $inter_traces[path][:lines][line].each do |a|
+      p tp.method_id
       if a[:children][1][:kind] == :variable && a[:children][1][:label] == tp.method_id
         a[:typ] = typ
       end
@@ -88,7 +90,7 @@ def load_type(arg)
   if arg.nil?
     return {kind: :nil}
   end
-  if arg == Integer
+  res = if arg == Integer
     {kind: :int}
   elsif arg == NilClass
     {kind: :nil}
@@ -97,6 +99,10 @@ def load_type(arg)
   else
     {kind: :simple, label: arg.name}
   end
+  if res[:kind] == :object
+    $inter_types[res[:label]] = res
+  end
+  res
 end
 
 def load_method(args, return_type)
@@ -170,7 +176,8 @@ INTER_VARIABLE = 3
 
 PATTERN_STDLIB = {puts: -> a { {kind: INTER_CALL, children: [{kind: INTER_VARIABLE, label: "echo"}] + a , typ: {kind: :nil} } } }
 
-KINDS = {}
+KINDS = {lvasgn: :assign}
+
 class InterTranslator
   def initialize(ast)
     @ast = ast
@@ -185,6 +192,7 @@ class InterTranslator
       elsif it.type == :send && it.children[0].nil? && it.children[1] == :require
         res[:imports].push(it.children[2].children[0])
       else
+        # p it, process_node(it)
         res[:main].push(process_node it)
       end
     end
@@ -214,8 +222,14 @@ class InterTranslator
         return value
       end
       value = {kind: get_kind(node.type), children: node.children.map { |it| process_node it }, typ: nil}
-      # p get_kind(node.type)
       if node.type == :send
+        # p value
+        # p value[:children][0][:kind] == :ruby_const
+        # p value[:children][1][:kind] == :variable
+        # p value[:children][1][:label] == :new
+        if value[:children][0][:kind] == :ruby_const && value[:children][1][:kind] == :variable && value[:children][1][:label] == :new
+          value = {kind: :new, children: [{kind: :variable, label: value[:children][0][:label]}] + value[:children][2 .. -1]}          
+        end
         begin
           if !@inter_ast[:lines].key?(node.loc.line)
             @inter_ast[:lines][node.loc.line] = []
@@ -225,12 +239,9 @@ class InterTranslator
         rescue
           {kind: :nil}
         end
+      else
+        value
       end
-      # if @methods.length > 0
-      #   if !@inter_ast[:method_lines].key?(node.loc.line)
-      #     @inter_ast[:method_lines][node.loc.line] = @methods[-1]
-      #   end
-      # end
     elsif node.class == Integer
       {kind: :int, i: node, typ: nil}
     elsif node.class == String
@@ -240,6 +251,10 @@ class InterTranslator
     elsif node.nil?
       {kind: :nil, typ: nil}
     end
+  end
+
+  def process_const(node)
+    {kind: :ruby_const, label: node.children[1]}
   end
 
   def process_int(node)
@@ -302,7 +317,6 @@ class InterProcessor
         new_node[:raises].push({kind: INTER_VARIABLE, label: @traces[id][-1].class.to_s})
       end
       @inter_method = new_node
-      # p node.children[2]
       process(node.children[2])
       @inter_method = nil
       if @inter_class.nil?
@@ -362,8 +376,49 @@ def generate_path(path, methods, traces, inter_traces)
   inter_traces[path] = generate_inter_traces(traces, methods, ast)
 end
 
+def compile_child child
+  if child[:kind] == :ruby_send
+    if child[:children][0][:kind] == :nil
+      if !child[:typ].nil? || !child[:children][2].nil?
+        {kind: :call, children: child[:children][1 .. -1].map { |l| compile_child l }, typ: child[:typ]}
+      else
+        child[:children][1]
+      end
+    else
+      if !child[:typ].nil? || !child[:children][2].nil?
+        {kind: :send, children: child[:children].map { |l| compile_child l }, typ: child[:typ]}
+      else
+        {kind: :attribute, children: child[:children].map { |l| compile_child l }, typ: child[:typ]}
+      end
+    end
+  elsif child.key?(:children)
+    res = child
+    res[:children] = child[:children].map { |it| compile_child it }
+    res
+  else
+    child
+  end
+end
+
+def compile traces
+  traces.each do |path, file|
+    file[:main] = file[:main].map do |child|
+      compile_child(child)
+    end
+    file[:classes] = file[:classes].map do |klass|
+      {kind: klass[:kind],
+       label: klass[:children][0][:label],
+       methods: klass[:children][2 .. -1].map { |met| {label: met[:label][:label], node: compile_child(met)} },
+       fields: [],
+       typ: $inter_types[klass[:children][0][:label]]}
+    end
+  end
+end
+
 def generate
-  File.write("lang_traces.json", JSON.dump($inter_traces))
+  compile $inter_traces
+
+  File.write("lang_traces.json", JSON.pretty_generate($inter_traces))
 end
 
 t.enable
@@ -374,6 +429,7 @@ t4.enable
 begin
   Kernel.load ARGV.first
 rescue => e
+  puts e
   raise e
 end
 

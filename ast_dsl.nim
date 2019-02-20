@@ -36,7 +36,7 @@ macro attribute*(label: static[string]): untyped =
   let field = newLit(fields[1])
   result = quote:
     Node(
-      kind: PyAttribute,
+      kind: Attribute,
       children: @[
         Node(kind: PyLabel, label: `base`, isFinished: true),
         Node(kind: PyStr, text: `field`, isFinished: true)],
@@ -48,7 +48,7 @@ macro attribute*(base: untyped, attr: untyped, typ: untyped = nil): untyped =
   let t = if typ.isNil: newNilLit() else: typ
   result = quote:
     Node(
-      kind: PyAttribute,
+      kind: Attribute,
       typ: `t`,
       children: @[
         `baseL`,

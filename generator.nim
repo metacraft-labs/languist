@@ -334,7 +334,7 @@ proc generateFloat(generator: var Generator, node: Node): PNode =
   result.floatVal = node.f
 
 proc generateAttribute(generator: var Generator, node: Node): PNode =
-  ensure(PyAttribute)
+  ensure(Attribute)
 
   assert node[1].kind == PyStr
 
@@ -563,7 +563,7 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateInt(node)
   of PyFloat:
     result = generator.generateFloat(node)
-  of PyAttribute:
+  of Attribute:
     result = generator.generateAttribute(node)
   of PyStr:
     result = generator.generateStr(node)
