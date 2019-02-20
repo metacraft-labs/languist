@@ -512,7 +512,7 @@ proc deepCopy*(a: Node): Node =
     result.i = a.i
   of PyFloat:
     result.f = a.f
-  of PyLabel:
+  of PyLabel, Variable:
     result.label = a.label
   of PyHugeInt:
     result.h = a.h
@@ -537,6 +537,7 @@ proc deepCopy*(a: Node): Node =
   result.children = @[]
   for child in a.children:
     result.children.add(deepCopy(child))
+  result.typ = a.typ
 
 proc camelCase*(label: string): string =
   var remainder = label
@@ -615,18 +616,17 @@ type
   Rewrite* = object
     rules*: seq[RewriteRule]
 
-# call(find(`e`)) => call(push()
-# isReplaced
-# nope just find out names
-# receiver = etc
-# and replace
-# output = the general function which does it based on clojure rewrite list too
+proc accepts(l: Type, r: Type): bool =
+  if l.kind == T.Any:
+    return true
+  else:
+    return l == r    
 
 proc find(l: Node, r: Node): bool =
   echo "l", l
   echo "r", " ", r
   if l.kind == Variable:
-    if not l.typ.isNil and l.typ != r.typ:
+    if not l.typ.isNil and not l.typ.accepts(r.typ):
       return false
     else:
       return true
@@ -656,12 +656,15 @@ proc find(l: Node, r: Node): bool =
   
 proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
   result = @[]
+  dump rewrite.rules.len
   for rule in rewrite.rules:
     if rule.input.find(node):
       result.add(rule)
 
 proc replace(rule: RewriteRule, node: Node, blockNode: Node): Node =
   var args = initTable[string, Node]()
+  dump rule.input
+  dump node
   for i in 0 ..< rule.replaced.len:
     let r = rule.replaced[i].label
     let arg = rule.args[i]
@@ -679,7 +682,7 @@ proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node): Node
 
 proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node): Node =
   var b: seq[RewriteRule] = @[]
-  echo "node"
+  dump node
   if not node.isFinished:
     b = rewrite.find(node)
   var newNode = node
@@ -709,6 +712,8 @@ proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node): Node =
       newNode.children[i] = rewriteNode(child, rewrite, blockNode)
   return newNode
 
+var inRuby {.compileTime.} = true
+
 proc compileNode(node: NimNode, replaced: seq[(string, NimNode)]): NimNode =
   case node.kind
   of nnkCharLit..nnkUInt64Lit:
@@ -732,7 +737,7 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)]): NimNode =
     var sons = node.mapIt(compileNode(it, replaced))
     var call = ""
     case node.kind:
-    of nnkCall:
+    of nnkCall, nnkCommand:
       call = "call"
       if node[0].kind == nnkDotExpr:
         call = "send"
@@ -741,7 +746,7 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)]): NimNode =
         sons.add(oldSons[0][1])
         sons.add(oldSons[0][2])
         sons = sons.concat(oldSons[1 .. ^1])
-        if ($sons[1]).startsWith("is_"):
+        if inRuby and ($sons[1]).startsWith("is_"):
           sons[1] = newLit(($(sons[1]))[3 .. ^1] & "?")
     of nnkDotExpr:
       call = "attribute"
@@ -785,9 +790,12 @@ proc generateInput(input: NimNode): NimNode =
   n = quote:
     rewriteList.rules.add(`help`)
   result.add(n)
+  echo h.repr
 
 var IntType = Type(kind: T.Simple, label: "Int")
 var BoolType = Type(kind: T.Simple, label: "Bool")
+var AnyType = Type(kind: T.Any)
+var VoidType = Type(kind: T.Simple, label: "Void")
 
 dumpAstGen:
   b = proc(node: int): int = 0
@@ -838,10 +846,12 @@ macro rewrite*(input: untyped, output: untyped): untyped =
   var n = quote:
     `help`.output = `outputCall`
   result.add(n)
-  echo result.repr
+  result = quote:
+    block:
+      `result`
+  
 
-
-var rewriteList  = Rewrite(rules: @[])
+var rewriteList = Rewrite(rules: @[])
 
 # rewrite do (x: Int, y: Bool):
 #   # тук имаш някакъв сложен snippet, който включва x и y
@@ -853,13 +863,39 @@ var rewriteList  = Rewrite(rules: @[])
 #   #for i in 0 ..< x:
 #   #  y
 
+
+rewrite do (x: Int):
+  x.is_positive()
+do:
+  interlang:
+    send(args["x"], "is_positive", BoolType)
+    
+rewrite do (x: Any):
+  puts x
+do:
+  interlang:
+    call(variable("echo"), args["x"], VoidType)
+
+var rewriteinputruby = rewriteList
+rewriteList = Rewrite(rules: @[])
+
+static:
+  inRuby = false
+
 rewrite do (x: Int):
   x.is_positive()
 do:
   interlang:
     compare(operator(">"), args["x"], 0, BoolType)
 
-echo rewriteList.rules[0].input
+rewrite do (x: Any):
+  echo(x)
+do:
+  interlang:
+    call(variable("echo"), args["x"], VoidType)
+
+var rewritenim = rewriteList
+echo rewritenim.rules[0].input
 
 var input = Node(
   kind: Class,
@@ -925,7 +961,6 @@ proc analyze(node: Node, env: Env) =
 
 
 
-echo dump(input, 0, true)
 var env = Env(parent: nil, types: initTable[string, Type]())
 
 input.analyze(env)
@@ -943,5 +978,10 @@ proc rewriteProgram(node: Node, rewrite: Rewrite): Node =
   else:
     discard
 
-input = rewriteProgram(input, rewriteList)
-echo input
+echo "after analyze ", dump(input, 0, true)
+input = rewriteProgram(input, rewriteinputruby)
+# two directions
+echo "after ruby ", dump(input, 0, true)
+input = rewriteProgram(input, rewritenim)
+echo "after rewrite ", dump(input, 0, true)
+
