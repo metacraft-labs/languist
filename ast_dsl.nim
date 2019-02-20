@@ -191,15 +191,9 @@ macro compare*(op: untyped, left: untyped, right: untyped, typ: untyped): untype
     Node(
       kind: PyCompare,
       children: @[
+        `op`,
         `l`,
-        Node(
-          kind: Sequence,
-          children: @[`op`],
-          isFinished: true),
-        Node(
-          kind: Sequence,
-          children: @[`r`],
-          isFinished: true)],
+        `r`],
       typ: `typ`,
       isFinished: true)
 

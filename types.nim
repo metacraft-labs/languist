@@ -1,4 +1,6 @@
-import sequtils, strutils, strformat, tables, sugar, hashes, gen_kind, sets, json, macros
+import sequtils, strutils, strformat, tables, sugar, hashes, gen_kind, sets, json, macros, terminal, helpers
+import
+  compiler/[ast, astalgo, idents, msgs, renderer, lineinfos]
 
 type
   T* {.pure.} = enum 
@@ -18,6 +20,8 @@ type
     label*:     string
     fullLabel*: string # with namespace
     args*:     seq[Type]
+    isRef*:    bool
+    isVar*:    bool
     case kind*: T:
     of T.Simple:
       # Types of atom values and types for which we only know the name, not the structure
@@ -41,7 +45,7 @@ type
       base*:      Type
       inherited*: bool
       init*:      string # if empty, :
-      members*:   Table[string, Type]
+      fields*:   Table[string, Type]
     of T.Tuple, T.Union:
       # A tuple
       elements*: seq[Type]
@@ -141,21 +145,20 @@ type
     of PyImport:
       aliases*: seq[Node]
     of PyFunctionDef:
-      isIterator*: bool
-      isMethod*: bool
       calls*: HashSet[string]
-      isGeneric*: bool
-      doc*: seq[string]
-    of PyClassDef:
-      docstring*: seq[string]
     of Class:
       fields*: seq[Field]
       methods*: seq[Field]
+      docstring*: seq[string]
     of NodeMethod:
       # id*: string
+      isIterator*: bool
+      isMethod*: bool
+      isGeneric*: bool
       returnType*: Type
       args*: seq[Node]
       code*: seq[Node]
+      doc*: seq[string]
     else:
       discard
     children*: seq[Node] # complicates everything to have it disabled for several nodes
@@ -177,6 +180,15 @@ type
     all*:     seq[string]
 
   Python2NimError* = object of Exception
+
+  NimVersion* {.pure.} = enum V019, Development
+
+  Generator* = object
+    indent*:               int
+    v*:                    NimVersion
+    module*:               Module
+    identifierCollisions*: HashSet[string]
+    res*:                  PNode
 
 let endl = "\n"
 
@@ -242,7 +254,7 @@ proc dump*(t: Type, depth: int): string =
         "$1[$2]" % [t.label, t.genericArgs.join(" ")]
       of T.Object:
         var members = ""
-        for label, member in t.members:
+        for label, member in t.fields:
           members.add("$1$2: $3\n" % [repeat("  ", depth + 1), label, dump(member, 0)])
         "$1:\n$2" % [t.label, members]
       of T.Tuple, T.Union:
@@ -273,7 +285,7 @@ iterator items*(t: Type): Type =
   of T.Generic:
     discard
   of T.Object:
-    for label, member in t.members:
+    for label, member in t.fields:
       yield member
   of T.Tuple, T.Union:
     for element in t.elements:
@@ -361,9 +373,9 @@ proc deepCopy*(a: Type): Type =
       result.base = deepCopy(a.base)
       result.inherited = a.inherited
       result.init = a.init
-      result.members = initTable[string, Type]()
-      for label, typ in a.members:
-        result.members[label] = deepCopy(typ)
+      result.fields = initTable[string, Type]()
+      for label, typ in a.fields:
+        result.fields[label] = deepCopy(typ)
     of T.Tuple, T.Union:
       result.elements = a.elements.mapIt(deepCopy(it))
     of T.Macro:
@@ -411,10 +423,10 @@ proc dump*(node: Node, depth: int, typ: bool = false): string =
     typDump = ""
   if left == "":
     left = case node.kind:
-      of Int:
+      of Int, PyInt:
         "Int($1)$2" % [$node.i, typDump]
-      of Variable:
-        "Variable($1)$2" % [node.label, typDump]
+      of Variable, PyOperator:
+        $node.kind & "($1)$2" % [node.label, typDump]
       of PyStr:
         "PyStr($1)$2" % [node.text, typDump]
       of NodeMethod:
@@ -512,7 +524,7 @@ proc deepCopy*(a: Node): Node =
     result.i = a.i
   of PyFloat:
     result.f = a.f
-  of PyLabel, Variable:
+  of PyLabel, Variable, PyOperator:
     result.label = a.label
   of PyHugeInt:
     result.h = a.h
@@ -529,9 +541,12 @@ proc deepCopy*(a: Node): Node =
     result.isGeneric = a.isGeneric
   of Class:
     result.methods = a.methods.mapIt(Field(label: it.label, node: deepCopy(it.node)))
+    result.label = a.label
+
   of NodeMethod:
     result.args = a.args.mapIt(deepCopy(it))
     result.code = a.code.mapIt(deepCopy(it))
+    result.label = a.label
   else:
     discard
   result.children = @[]
@@ -654,16 +669,16 @@ proc find(l: Node, r: Node): bool =
   
 proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
   result = @[]
-  dump rewrite.rules.len
+  # dump rewrite.rules.len
   for rule in rewrite.rules:
     if rule.input.find(node):
-      dump rule.input
-      dump node
+      # dump rule.input
+      # dump node
       result.add(rule)
 
 proc replace(rule: RewriteRule, node: Node, blockNode: Node): Node =
   var args = initTable[string, Node]()
-  dump node
+  # dump node
   for i in 0 ..< rule.replaced.len:
     let r = rule.replaced[i].label
     let arg = rule.args[i]
@@ -673,16 +688,16 @@ proc replace(rule: RewriteRule, node: Node, blockNode: Node): Node =
       subNode = subNode.children[rule.args[i][k]]
       k += 1
     args[r] = subNode
-  dump args
+  # dump args
   result = rule.output(node, args, blockNode, rule)
-  dump rule.args
+  # dump rule.args
   result.isFinished = true
 
 proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node): Node
 
 proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node): Node =
   var b: seq[RewriteRule] = @[]
-  dump node
+  # dump node
   if not node.isFinished:
     b = rewrite.find(node)
   var newNode = node
@@ -812,8 +827,8 @@ proc generateInput(input: NimNode): NimNode =
     `help`.input = `h`
   result.add(n)
   let args2 = args(h, replaced2)
-  dump args2
-  dump h.repr
+  # dump args2
+  # dump h.repr
   n = quote:
     @[]
   for argList in args2:
@@ -833,9 +848,6 @@ var IntType = Type(kind: T.Simple, label: "Int")
 var BoolType = Type(kind: T.Simple, label: "Bool")
 var AnyType = Type(kind: T.Any)
 var VoidType = Type(kind: T.Simple, label: "Void")
-
-dumpAstGen:
-  b = proc(node: int): int = 0
 
 macro rewrite*(input: untyped, output: untyped): untyped =
   let inputNode = generateInput(input)
@@ -886,7 +898,7 @@ macro rewrite*(input: untyped, output: untyped): untyped =
   result = quote:
     block:
       `result`
-  dump result.repr
+  # dump result.repr
 
 var rewriteList = Rewrite(rules: @[])
 
@@ -921,17 +933,22 @@ do:
     call(variable("echo"), args["x"], VoidType)
 
 var rewritenim = rewriteList
-echo rewritenim.rules[0].input
+
+var A = Type(kind: T.Object, label: "A", fields: initTable[string, Type]())
+
 
 var input = Node(
   kind: Class,
   label: "A",
+  docstring: @[],
+  fields: @[],
   methods: @[
     Field(
       label: "b",
       node: Node(
         kind: NodeMethod,
         label: "b",
+        typ: Type(kind: T.Method, args: @[A, IntType], returnType: VoidType),
         # (arg) # self int
         args: @[
           input_variable("self"),
@@ -945,7 +962,8 @@ var input = Node(
               input_send(
                 input_variable("arg"),
                 "positive?",
-                BoolType)])]))])
+                BoolType)])]))],
+  typ: A)
 
 proc analyze(node: Node, env: Env) =
   case node.kind:
@@ -999,7 +1017,6 @@ proc rewriteProgram(node: Node, rewrite: Rewrite): Node =
       var newCode: seq[Node] = @[]
       for element in met.node.code:
         newCode.add(rewriteNode(element, rewrite, met.node))
-      echo result.methods
       result.methods[i].node.code = newCode
   else:
     discard
@@ -1009,5 +1026,10 @@ input = rewriteProgram(input, rewriteinputruby)
 # two directions
 echo "after ruby ", dump(input, 0, true)
 input = rewriteProgram(input, rewritenim)
-echo "after rewrite ", dump(input, 0, true)
+# echo "after rewrite ", dump(input, 0, true)
 
+include generator
+
+var generator = Generator(indent: 2, v: V019, module: Module(), identifierCollisions: initSet[string]())
+var nimNode = generator.generateClass(input)
+echo nimNode.renderTree({renderDocComments}) & "\n"

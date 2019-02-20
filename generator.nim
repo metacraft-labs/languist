@@ -1,26 +1,3 @@
-import
-  strformat, strutils, sequtils, tables, sets,
-  types, helpers, core,
-  compiler/[ast, astalgo, idents, msgs, renderer, lineinfos],
-  terminal, macros, types
-
-
-type
-  NimVersion* {.pure.} = enum V017, Development
-
-  Generator* = object
-    indent*:               int
-    v*:                    NimVersion
-    module*:               Module
-    identifierCollisions*: HashSet[string]
-    res*:                  PNode
-
-
-
-template log(a: Textable) =
-  if helpers.debug:
-    styledWriteLine(stdout, fgBlue, $a, resetStyle)
-
 template log(a: string) =
   if helpers.debug:
     styledWriteLine(stdout, fgBlue, a, resetStyle)
@@ -30,8 +7,6 @@ template emitNode(s: untyped): untyped =
 
 template ensure(k: untyped): untyped =
   assert node.kind == `k`
-
-let endl = "\n"
 
 let nilNode = nkNilLit.newTree()
 let emptyNode = newNode(nkEmpty)
@@ -50,6 +25,7 @@ proc generateAssign(generator: var Generator, node: Node): PNode
 
 proc generateType(generator: var Generator, typ: Type): PNode
 
+
 proc generateImports(generator: var Generator, imp: seq[Node]): PNode =
   assert len(imp) == 0 or imp[0].kind == PyImport
 
@@ -67,6 +43,8 @@ proc generateImports(generator: var Generator, imp: seq[Node]): PNode =
   else:
     result = top
 
+proc generateMethod(generator: var Generator, met: Node): PNode
+
 proc generateClass(generator: var Generator, t: Node): PNode =
   assert t.kind in {Class}
 
@@ -74,12 +52,12 @@ proc generateClass(generator: var Generator, t: Node): PNode =
 
   var recList: PNode
   var docstring: PNode
-  if len(t.typ.members) > 0:
+  if len(t.typ.fields) > 0:
     recList = nkRecList.newTree()
     if len(t.docstring) > 0:
       recList.add(newNode(nkEmpty))
       recList[^1].comment = t.docstring.join("\n")
-    for member, a in t.typ.members:
+    for member, a in t.typ.fields:
       recList.add(nkIdentDefs.newTree(
         nkPostfix.newTree(generateIdent("*"), generateIdent(member)),
         generator.generateType(a),
@@ -105,13 +83,16 @@ proc generateClass(generator: var Generator, t: Node): PNode =
     objectNode = nkRefTy.newTree(
       objectNode)
   var tNode = nkTypeDef.newTree(
-    nkPostfix.newTree(generateIdent("*"), emitNode(t[0])),
+    nkPostfix.newTree(generateIdent("*"), generateIdent(t.label)),
     emptyNode,
     objectNode)
 
   result = nkTypeSection.newTree(tNode)
   if not docstring.isNil:
     result.add(docstring)
+  result = nkStmtList.newTree(result)
+  for met in t.methods:
+    result.add(generator.generateMethod(met.node))
 
 
 proc generateType(generator: var Generator, typ: Type): PNode =
@@ -119,26 +100,28 @@ proc generateType(generator: var Generator, typ: Type): PNode =
     result = generateIdent("void")
   else:
     case typ.kind:
-    of N.Atom, N.Record:
+    of T.Simple, T.Object:
       var typLabel = typ.label
       if typLabel == "type":
         typLabel = "typedesc"
       elif typLabel == "bytes":
         typLabel = "cstring"
+      elif typLabel in @["Int", "Void"]:
+        typLabel = typLabel.toLowerAscii()
       result = generateIdent(typLabel)
-    of N.Tuple:
+    of T.Tuple:
       result = nkPar.newTree()
       for element in typ.elements:
         result.add(generator.generateType(element))
-    of N.Compound:
+    of T.Compound:
       result = nkBracketExpr.newTree(generateIdent(typ.original.label))
       for arg in typ.args:
         result.add(generator.generateType(arg))
-    of N.Generic:
+    of T.Generic:
       result = nkBracketExpr.newTree(generateIdent(typ.label))
       for arg in typ.genericArgs:
         result.add(generateIdent(arg))
-    of N.Macro:
+    of T.Macro:
       result = nkCall.newTree(generateIdent(typ.label))
       for arg in typ.macroArgs:
         result.add(generator.generateType(arg))
@@ -149,26 +132,26 @@ proc generateType(generator: var Generator, typ: Type): PNode =
     elif typ.isRef:
       result = nkRefTy.newTree(result)
 
-proc generateArgs(generator: var Generator, node: Node, typ: Type): PNode
+proc generateArgs(generator: var Generator, nodes: seq[Node], typ: Type): PNode
 
 proc generateForward(generator: var Generator, function: Node): PNode =
-  assert function.kind in {PyFunctionDef}
+  assert function.kind in {NodeMethod}
 
-  let args = generator.generateArgs(function[1], function.typ)
+  let args = generator.generateArgs(function.args, function.typ)
 
-  var name = if function[0].kind == PyStr: generateIdent(function[0].s) else: emitNode(function[0])
+  var name = generateIdent(function.label)
   name = nkPostfix.newTree(
       generateIdent("*"),
       name)
-  if function.typ.kind == N.Function:
+  if function.typ.kind == T.Method:
     var genericArgs: seq[string] = @[]
-    for arg in function.typ.functionArgs:
+    for arg in function.typ.args:
       case arg.kind:
-      of N.Generic:
+      of T.Generic:
         for label in arg.genericArgs:
           if label notin genericArgs:
             genericArgs.add(label)
-      of N.GenericVar:
+      of T.GenericVar:
         if arg.label notin genericArgs:
           genericArgs.add(arg.label)
       else:
@@ -194,36 +177,48 @@ proc generateForward(generator: var Generator, function: Node): PNode =
   result.add(emptyNode)
   result.add(emptyNode)
 
-proc generateArgs(generator: var Generator, node: Node, typ: Type): PNode =
-  ensure(Pyarguments)
-
+proc generateArgs(generator: var Generator, nodes: seq[Node], typ: Type): PNode =
   var iTyp = typ
-  if typ.kind == N.Overloads:
-    iTyp = typ.overloads[0] # TODO we shouldn't be able to get Overloads gen
+  if typ.kind == T.MethodOverload:
+    iTyp = typ.overloads[0]
   result = nkFormalParams.newTree()
   result.add(generator.generateType(iTyp.returnType))
   var z = 0
-  for arg in node[0]:
-    var argTyp = if z < len(iTyp.functionArgs): iTyp.functionArgs[z] else: T.Void
+  for arg in nodes:
+    var argTyp = if z < len(iTyp.args): iTyp.args[z] else: VoidType
     result.add(nkIdentDefs.newTree(
-      generateIdent(arg[0].s),
+      generateIdent(arg.label),
       generator.generateType(argTyp),
       emptyNode))
     z += 1
 
-proc generateFunction(generator: var Generator, function: Node): PNode =
-  assert function.kind in {PyFunctionDef}
+proc generateMethod(generator: var Generator, met: Node): PNode =
+  assert met.kind in {NodeMethod}
 
-  result = generator.generateForward(function)
+  result = generator.generateForward(met)
 
-  var children = emitNode(function[2])
-  if children.kind != nkStmtList:
-    children = nkStmtList.newTree(children)
+  var children = nkStmtList.newTree()
+  for child in met.code:
+    children.add(emitNode(child))
   result.sons[^1] = children
-  if len(function.doc) > 0:
+  if len(met.doc) > 0:
     var docstring = newNode(nkEmpty)
-    docstring.comment = function.doc.join("\n")
+    docstring.comment = met.doc.join("\n")
     result.sons[^1] = nkStmtList.newTree(docstring, result.sons[^1])
+
+# proc generateFunction(generator: var Generator, function: Node): PNode =
+#   assert function.kind in {PyFunctionDef}
+
+#   result = generator.generateForward(function)
+
+#   var children = emitNode(function[2])
+#   if children.kind != nkStmtList:
+#     children = nkStmtList.newTree(children)
+#   result.sons[^1] = children
+#   if len(function.doc) > 0:
+#     var docstring = newNode(nkEmpty)
+#     docstring.comment = function.doc.join("\n")
+#     result.sons[^1] = nkStmtList.newTree(docstring, result.sons[^1])
 
 proc generateDeclaration(generator: var Generator, declaration: Declaration): string =
   let declarations: array[Declaration, string] = ["", "let ", "var ", "const "]
@@ -244,7 +239,7 @@ proc generateAssign(generator: var Generator, node: Node): PNode =
   of Declaration.Existing:
     result = nkAsgn.newTree(name, value)
 
-proc generateLabel(generator: var Generator, node: Node): PNode =
+proc generateVariable(generator: var Generator, node: Node): PNode =
   result = generateIdent(node.label)
 
 proc generateIf(generator: var Generator, node: Node): PNode =
@@ -312,13 +307,12 @@ proc generateSequence(generator: var Generator, node: Node): PNode =
     z += 1
 
 proc generateCall(generator: var Generator, node: Node): PNode =
-  ensure(PyCall)
-
   result = nkCall.newTree(emitNode(node[0]))
-  for arg in node.children[1]:
-    result.add(emitNode(arg))
+  for i, arg in node.children:
+    if i > 0:
+      result.add(emitNode(arg))
 
-  if node[0].kind == PyLabel and node[0].label == "echo":
+  if node[0].kind == Variable and node[0].label == "echo":
     result.kind = nkCommand
 
 
@@ -344,13 +338,13 @@ proc generateAttribute(generator: var Generator, node: Node): PNode =
 
   assert node[1].kind == PyStr
 
-  result = nkDotExpr.newTree(emitNode(node[0]), generateIdent(node[1].s))
+  result = nkDotExpr.newTree(emitNode(node[0]), generateIdent(node[1].text))
 
 proc generateStr(generator: var Generator, node: Node): PNode =
   ensure(PyStr)
 
   result = nkStrLit.newNode()
-  result.strVal = node.s
+  result.strVal = node.text
 
 let SYMBOLS* = {
   PyAdd: "+",
@@ -395,12 +389,12 @@ proc generateCompare(generator: var Generator, node: Node): PNode =
   ensure(PyCompare)
 
   result = nkInfix.newTree(
-    generator.generateOp(node[1][0]),
-    emitNode(node[0]),
-    emitNode(node[2][0]))
+    generator.generateOp(node[0]),
+    emitNode(node[1]),
+    emitNode(node[2]))
 
 proc generateConstr(generator: var Generator, node: Node): PNode =
-  assert node[0].typ.kind == N.Record
+  assert node[0].typ.kind == T.Object
 
   if node[0].typ.init == "":
     result = nkObjConstr.newTree(
@@ -455,6 +449,7 @@ proc generateWhile(generator: var Generator, node: Node): PNode =
   result = nkWhileStmt.newTree(emitNode(node[0]), emitNode(node[1]))
 
 proc generateUnaryOp(generator: var Generator, node: Node): PNode =
+  echo node
   result = nkPrefix.newTree(generator.generateOp(node[0]), emitNode(node[1]))
 
 proc generateExprColonExpr(generator: var Generator, node: Node): PNode =
@@ -484,7 +479,7 @@ proc generateAccQuoted(generator: var Generator, node: Node): PNode =
 
 proc generateBytes(generator: var Generator, node: Node): PNode =
   var r = nkRStrLit.newNode()
-  r.strVal = node.s
+  r.strVal = node.text
   result = nkCallStrLit.newTree(generateIdent("cstring"), r)
 
 proc generateYield(generator: var Generator, node: Node): PNode =
@@ -533,7 +528,7 @@ proc generateSlice(generator: var Generator, node: Node): PNode =
 proc generateCommentedOut(generator: var Generator, node: Node): PNode =
   result = newNode(nkEmpty)
   if node[0].kind == PyStr:
-    result.comment = fmt"py2nim can't generate code for{endl}{node[0].s}"
+    result.comment = fmt"py2nim can't generate code for{endl}{node[0].text}"
 
 proc generateContinue(generator: var Generator, node: Node): PNode =
   result = nkContinueStmt.newTree(emptyNode)
@@ -550,8 +545,8 @@ proc generateNode(generator: var Generator, node: Node): PNode =
   case node.kind:
   of PyAssign:
     result = generator.generateAssign(node)
-  of PyLabel:
-    result = generator.generateLabel(node)
+  of PyLabel, Variable:
+    result = generator.generateVariable(node)
   of PyNone:
     result = nilNode
   of PyIf:
@@ -560,11 +555,11 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateWhen(node)
   of Sequence:
     result = generator.generateSequence(node)
-  of PyCall:
+  of PyCall, Call:
     result = generator.generateCall(node)
   of PyReturn:
     result = generator.generateReturn(node)
-  of PyInt:
+  of Int, PyInt:
     result = generator.generateInt(node)
   of PyFloat:
     result = generator.generateFloat(node)
@@ -665,27 +660,27 @@ proc generate*(generator: var Generator, module: Module): string =
 
   var forward: seq[Node] = @[]
 
-  for z, function in module.functions:
-    # TODO: smart
-    if not function.isIterator:
-      for index, previous in module.functions:
-        if index >= z:
-          break
-        if isValid(previous.calls) and previous.calls.contains(function.typ.label):
-          forward.add(function)
+  # for z, function in module.functions:
+  #   # TODO: smart
+  #   if not function.isIterator:
+  #     for index, previous in module.functions:
+  #       if index >= z:
+  #         break
+  #       if isValid(previous.calls) and previous.calls.contains(function.typ.label):
+  #         forward.add(function)
 
-  for function in forward:
-    generator.res.add(generator.generateForward(function))
+  # for function in forward:
+  #   generator.res.add(generator.generateForward(function))
 
-  for function in module.functions:
-    generator.res.add(generator.generateFunction(function))
+  # for function in module.functions:
+  #   generator.res.add(generator.generateFunction(function))
 
-  var init: seq[Node] = @[]
-  for i in module.init:
-    if i.kind != PyNone:
-      init.add(i)
+  # var init: seq[Node] = @[]
+  # for i in module.main:
+  #   if i.kind != PyNone:
+  #     init.add(i)
 
-  generator.res.add(emitNode(Node(kind: Sequence, children: init)))
+  # generator.res.add(emitNode(Node(kind: Sequence, children: init)))
 
   result = generator.res.renderTree({renderDocComments}) & "\n"
   if result.startsWith("  "):
