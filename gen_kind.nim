@@ -18,4 +18,4 @@ macro genKind*(v: typed, s: typed): untyped =
               newIdentNode("kind"),
               newIdentNode(repr(child)))))))
     z += 1
-  echo repr(result)
+  # echo repr(result)

@@ -623,8 +623,6 @@ proc accepts(l: Type, r: Type): bool =
     return l == r    
 
 proc find(l: Node, r: Node): bool =
-  echo "l", l
-  echo "r", " ", r
   if l.kind == Variable:
     if not l.typ.isNil and not l.typ.accepts(r.typ):
       return false
@@ -659,11 +657,12 @@ proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
   dump rewrite.rules.len
   for rule in rewrite.rules:
     if rule.input.find(node):
+      dump rule.input
+      dump node
       result.add(rule)
 
 proc replace(rule: RewriteRule, node: Node, blockNode: Node): Node =
   var args = initTable[string, Node]()
-  dump rule.input
   dump node
   for i in 0 ..< rule.replaced.len:
     let r = rule.replaced[i].label
@@ -671,11 +670,12 @@ proc replace(rule: RewriteRule, node: Node, blockNode: Node): Node =
     var k = 0
     var subNode = node
     while k < arg.len:
-      subNode = subNode.children[k]
+      subNode = subNode.children[rule.args[i][k]]
       k += 1
     args[r] = subNode
+  dump args
   result = rule.output(node, args, blockNode, rule)
-  echo "res", result
+  dump rule.args
   result.isFinished = true
 
 proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node): Node
@@ -760,6 +760,34 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)]): NimNode =
 
 include ast_dsl
 
+proc args(node: NimNode, arg: string, a: var seq[int]): bool =
+  case node.kind:
+  of nnkCall:
+    if node[0].kind == nnkIdent and $node[0] == "variable" and $node[1] == arg:
+      return true
+    else:
+      for i, child in node:
+        let iArg = i - 1
+        if iArg == -1:
+          continue
+        
+        a.add(i - 1)
+        let res = args(child, arg, a)
+        if res:
+          return true
+        else:
+          discard a.pop()
+      return false
+  else:
+    return false
+
+
+proc args(node: NimNode, replaced: seq[(string, NimNode)]): seq[seq[int]] =
+  result = @[]
+  for arg in replaced:
+    result.add(@[])
+    discard args(node, arg[0], result[^1])
+    
 proc generateInput(input: NimNode): NimNode =
   let args = input[3]
   var help = ident("help")
@@ -783,14 +811,23 @@ proc generateInput(input: NimNode): NimNode =
   var n = quote:
     `help`.input = `h`
   result.add(n)
-  # TODO
+  let args2 = args(h, replaced2)
+  dump args2
+  dump h.repr
   n = quote:
-    `help`.args = @[@[0]]
+    @[]
+  for argList in args2:
+    var m = quote:
+      @[]
+    for arg in argList:
+      m[1].add(newLit(arg))
+    n[1].add(m)
+  n = quote:
+    `help`.args = `n`
   result.add(n)
   n = quote:
     rewriteList.rules.add(`help`)
   result.add(n)
-  echo h.repr
 
 var IntType = Type(kind: T.Simple, label: "Int")
 var BoolType = Type(kind: T.Simple, label: "Bool")
@@ -849,20 +886,9 @@ macro rewrite*(input: untyped, output: untyped): untyped =
   result = quote:
     block:
       `result`
-  
+  dump result.repr
 
 var rewriteList = Rewrite(rules: @[])
-
-# rewrite do (x: Int, y: Bool):
-#   # тук имаш някакъв сложен snippet, който включва x и y
-#   x.times(y)
-# do:
-#   interlang:
-#     forRange(variable("i"), 0, variable("x"), variable("y"))
-#   # тук казваш какъв е изходния snippet
-#   #for i in 0 ..< x:
-#   #  y
-
 
 rewrite do (x: Int):
   x.is_positive()
