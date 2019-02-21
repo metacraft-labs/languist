@@ -438,6 +438,9 @@ proc dump*(node: Node, depth: int, typ: bool = false): string =
         "$1$2:\n$3" % [kind, typDump, node.children.mapIt(dump(it, depth + 1, typ)).join("\n")]
   result = "$1$2" % [offset, left]
 
+proc dump*(m: Module, depth: int, typ: bool = false): string =
+  "$1\n$2" % [m.classes.mapIt(dump(it, depth, typ)).join("\n"), m.main.mapIt(dump(it, depth, typ)).join("\n")]
+    
 proc dumpList*(nodes: seq[Node], depth: int): string =
   result = nodes.mapIt(dump(it, depth, true)).join("\n")
 
@@ -1014,33 +1017,33 @@ var rewritenim = rewriteList
 var A = Type(kind: T.Object, label: "A", fields: initTable[string, Type]())
 
 
-var input = Node(
-  kind: Class,
-  label: "A",
-  docstring: @[],
-  fields: @[],
-  methods: @[
-    Field(
-      label: "b",
-      node: Node(
-        kind: NodeMethod,
-        label: "b",
-        typ: Type(kind: T.Method, args: @[A, IntType], returnType: VoidType),
-        # (arg) # self int
-        args: @[
-          input_variable("self"),
-          input_variable("arg", IntType)
-        ],
-        # puts arg.positive?
-        code: @[
-          input_call(
-            input_variable("puts"),
-            @[
-              input_send(
-                input_variable("arg"),
-                "positive?",
-                BoolType)])]))],
-  typ: A)
+# var inputClas = Node(
+#   kind: Class,
+#   label: "A",
+#   docstring: @[],
+#   fields: @[],
+#   methods: @[
+#     Field(
+#       label: "b",
+#       node: Node(
+#         kind: NodeMethod,
+#         label: "b",
+#         typ: Type(kind: T.Method, args: @[A, IntType], returnType: VoidType),
+#         # (arg) # self int
+#         args: @[
+#           input_variable("self"),
+#           input_variable("arg", IntType)
+#         ],
+#         # puts arg.positive?
+#         code: @[
+#           input_call(
+#             input_variable("puts"),
+#             @[
+#               input_send(
+#                 input_variable("arg"),
+#                 "positive?",
+#                 BoolType)])]))],
+#   typ: A)
 
 proc analyze(node: Node, env: Env) =
   case node.kind:
@@ -1075,14 +1078,20 @@ proc analyze(node: Node, env: Env) =
     discard
   of PyInt, PyFloat, PyChar, PyHugeInt, PyAssign, PyFunctionDef, PyClassDef:
     discard
+  of New:
+    node.typ = Type(kind: T.Simple, label: node.children[0].label)
   else:
     for child in node.children:
       analyze(child, env)
 
+proc analyze(m: Module, env: Env) =
+  for child in m.classes:
+    analyze(child, env)
+  for child in m.main:
+    analyze(child, env)
 
-dump dump(input, 0, true)
 var traceDB = load("lang_traces.json")
-input = traceDB.modules[0].classes[0]
+var input = traceDB.modules[0] #.classes[0]
 var env = Env(parent: nil, types: initTable[string, Type]())
 dump dump(input, 0, true)
 
@@ -1100,6 +1109,11 @@ proc rewriteProgram(node: Node, rewrite: Rewrite): Node =
   else:
     discard
 
+proc rewriteProgram(m: Module, rewrite: Rewrite): Module =
+  result = m
+  result.classes = m.classes.mapIt(rewriteProgram(it, rewrite))
+  result.main = m.main.mapIt(rewriteNode(it, rewrite, nil))
+
 echo "after analyze ", dump(input, 0, true)
 input = rewriteProgram(input, rewriteinputruby)
 # two directions
@@ -1110,5 +1124,5 @@ echo "after rewrite ", dump(input, 0, true)
 include generator
 
 var generator = Generator(indent: 2, v: V019, module: Module(), identifierCollisions: initSet[string]())
-var nimNode = generator.generateClass(input)
-echo nimNode.renderTree({renderDocComments}) & "\n"
+var output = generator.generate(input)
+echo output

@@ -306,6 +306,12 @@ proc generateSequence(generator: var Generator, node: Node): PNode =
       result.add(emitNode(child))
     z += 1
 
+proc generateSend(generator: var Generator, node: Node): PNode =
+  result = nkCall.newTree(
+    nkDotExpr.newTree(emitNode(node[0]), generateIdent(node[1].text)))
+  for arg in node.children[2 .. ^1]:
+    result.add(emitNode(arg))
+
 proc generateCall(generator: var Generator, node: Node): PNode =
   result = nkCall.newTree(emitNode(node[0]))
   for i, arg in node.children:
@@ -322,8 +328,6 @@ proc generateReturn(generator: var Generator, node: Node): PNode =
   result = nkReturnStmt.newTree(emitNode(node[0]))
 
 proc generateInt(generator: var Generator, node: Node): PNode =
-  ensure(PyInt)
-
   result = nkIntLit.newNode()
   result.intVal = node.i
 
@@ -560,6 +564,8 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateFloat(node)
   of Attribute:
     result = generator.generateAttribute(node)
+  of Send:
+    result = generator.generateSend(node)
   of String:
     result = generator.generateStr(node)
   of PyBinOp:
@@ -648,7 +654,7 @@ proc generate*(generator: var Generator, module: Module): string =
   if len(module.imports) > 0:
     generator.res.add(generator.generateImports(module.imports))
 
-  for t in module.types:
+  for t in module.classes:
     generator.res.add(generator.generateClass(t))
 
   var forward: seq[Node] = @[]
@@ -668,13 +674,9 @@ proc generate*(generator: var Generator, module: Module): string =
   # for function in module.functions:
   #   generator.res.add(generator.generateFunction(function))
 
-  # var init: seq[Node] = @[]
-  # for i in module.main:
-  #   if i.kind != PyNone:
-  #     init.add(i)
-
-  # generator.res.add(emitNode(Node(kind: Sequence, children: init)))
+  for b in module.main:
+    generator.res.add(emitNode(b))
 
   result = generator.res.renderTree({renderDocComments}) & "\n"
-  if result.startsWith("  "):
-    result = result.splitLines().mapIt(if len(it) > 2: it[2..^1] else: it).join("\n")
+  #if result.startsWith("  "):
+  #  result = result.splitLines().mapIt(if len(it) > 2: it[2..^1] else: it).join("\n")
