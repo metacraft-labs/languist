@@ -24,6 +24,7 @@ def trace_calls(data)
 end
 
 t = TracePoint.new(:call, :c_call) do |tp|
+  p tp
   # !tp.path.start_with?("/usr/lib/ruby/")
   if tp.path != "tracing.rb" && tp.defined_class != TracePoint && tp.defined_class != Kernel && tp.method_id != :disable && tp.method_id != :inherited && tp.defined_class != Class && tp.method_id != :method_added
     if !$inter_traces.key?(tp.path)
@@ -33,24 +34,28 @@ t = TracePoint.new(:call, :c_call) do |tp|
   end
 end
 
-t2 = TracePoint.new(:return) do |tp|
-  if tp.path == "tracing.rb"
-    break
-  end
-  path, line, *_ = caller[1].split(':')
-  line = line.to_i
-  # line = $call_lines.pop
-  typ = load_type(tp.return_value.class)
-  if $inter_traces.key?(path) && $inter_traces[path][:lines].key?(line)
-    $inter_traces[path][:lines][line].each do |a|
-      if a[:children][1][:kind] == :Variable && a[:children][1][:label] == tp.method_id
-        a[:typ] = typ
+t2 = TracePoint.new(:return, :c_return) do |tp|
+  if tp.method_id != :new && tp.method_id != :initialize && caller.length > 1 && tp.path != "tracing.rb" && !tp.path.include?("did_you_mean")
+    path, line, *_ = caller[1].split(':')
+    line = line.to_i
+    path = tp.path
+    line = tp.lineno
+    typ = load_type(tp.return_value.class)
+    if $inter_traces.key?(path) && $inter_traces[path][:lines].key?(line)
+      $inter_traces[path][:lines][line].each do |a|
+        if a[:children][1][:kind] == :Variable && a[:children][1][:label] == tp.method_id
+          a[:typ] = typ
+        end
       end
     end
-  end
-  method_line = $call_lines.pop
-  if $inter_traces[tp.path][:method_lines].key?(method_line)
-    $inter_traces[tp.path][:method_lines][method_line][:return_type] = typ
+  
+    if $call_lines.length > 0
+      method_line = $call_lines.pop
+      if $inter_traces.key?(tp.path) && $inter_traces[tp.path][:method_lines].key?(method_line)
+        p method_line
+        $inter_traces[tp.path][:method_lines][method_line][:return_type] = typ
+      end
+    end
   end
 end
 
@@ -59,28 +64,6 @@ t3 = TracePoint.new(:raise) do |tp|
   $trace[-1][-1] = exception
 end
 
-t4 = TracePoint.new(:line) do |tp|
-  # t4.disable
-  # t.disable
-  # t2.disable
-  # t3.disable
-  # if $inter_traces[data.path].nil?
-  #   $inter_traces[data.path] = generate_ast(data.path)
-  # end
-  # t.enable
-  # t2.enable
-  # t3.enable
-  # t4.enable
-  # # if $inter_traces[data.path][:lines].key?(tp.lineno)
-  #   $inter_traces[data.path][:lines][tp.lineno].each do |trace|
-  #     node.visit do |label|
-  #       #label
-  #       # just follow calls
-  #       # and then just fill those instead of all
-        # after this do local inference
-
-  # $lines.push([tp.path, tp.lineno])
-end
 
 
 class Type
@@ -97,6 +80,8 @@ def load_type(arg)
     {kind: :Simple, label: "Void"}
   elsif arg == String
     {kind: :Simple, label: "String"}
+  elsif arg == TrueClass || arg == FalseClass
+    {kind: :Simple, label: "Bool"}
   else
     {kind: :Simple, label: arg.name}
   end
@@ -383,7 +368,13 @@ def compile_child child
       end
     else
       if !child[:typ].nil? || !child[:children][2].nil?
-        {kind: :Send, children: child[:children].map { |l| compile_child l }, typ: child[:typ]}
+        m = {kind: :Send, children: child[:children].map { |l| compile_child l }, typ: child[:typ]}
+        p "send"
+        p m[:children]
+        if m[:children][1][:kind] == :Variable
+          m[:children][1] = {kind: :String, text: m[:children][1][:label]}
+        end
+        m
       else
         {kind: :Attribute, children: child[:children].map { |l| compile_child l }, typ: child[:typ]}
       end
@@ -426,7 +417,6 @@ end
 t.enable
 t2.enable
 t3.enable
-t4.enable
 
 begin
   Kernel.load ARGV.first
@@ -436,7 +426,6 @@ rescue => e
 end
 
 at_exit do
-  t4.disable
   t.disable
   t2.disable
   t3.disable

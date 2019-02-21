@@ -428,8 +428,8 @@ proc dump*(node: Node, depth: int, typ: bool = false): string =
         "Int($1)$2" % [$node.i, typDump]
       of Variable, PyOperator:
         $node.kind & "($1)$2" % [node.label, typDump]
-      of PyStr:
-        "PyStr($1)$2" % [node.text, typDump]
+      of String:
+        "String($1)$2" % [node.text, typDump]
       of NodeMethod:
         "Method($1)\n$2\n$3" % [node.label, node.args.mapIt(dump(it, 0, typ)).join(" "), node.code.mapIt(dump(it, depth + 1, typ)).join("\n")]
       of Class:
@@ -623,8 +623,6 @@ proc loadType*(typ: JsonNode): Type =
 proc loadNode*(m: JsonNode): Node =
   if m{"kind"}.isNil:
     return nil
-  echo parseEnum[NodeKind]("Assign")
-  echo m{"kind"}.getStr() == "Assign"
   var kind = parseEnum[NodeKind](m{"kind"}.getStr())
   
   case kind:
@@ -652,6 +650,10 @@ proc loadMethod*(m: JsonNode): Node =
   result.args = m{"args"}.mapIt(loadNode(it))
   result.code = m{"code"}.mapIt(loadNode(it))
   result.typ = loadType(m{"typ"})
+  result.returnType = loadType(m{"returnType"})
+  if result.typ.isNil:
+    var args = result.args.mapIt(it.typ)
+    result.typ = Type(kind: T.Method, args: args, returnType: result.returnType)
 
 proc loadClass*(m: JsonNode): Node =
   result = Node(kind: Class)
@@ -659,6 +661,9 @@ proc loadClass*(m: JsonNode): Node =
   result.fields = m{"fields"}.mapIt(Field(label: it{"label"}.getStr(), node: it{"node"}.loadNode()))
   result.methods = m{"methods"}.mapIt(Field(label: it{"label"}.getStr(), node: it{"node"}.loadMethod()))
   result.typ = loadType(m{"typ"})  
+  if result.typ.isNil:
+    # TODO
+    result.typ = Type(kind: T.Object)
 
 proc loadModule*(m: JsonNode): Module =
   result = Module()
@@ -1075,9 +1080,11 @@ proc analyze(node: Node, env: Env) =
       analyze(child, env)
 
 
+dump dump(input, 0, true)
 var traceDB = load("lang_traces.json")
 input = traceDB.modules[0].classes[0]
 var env = Env(parent: nil, types: initTable[string, Type]())
+dump dump(input, 0, true)
 
 input.analyze(env)
 
@@ -1098,7 +1105,7 @@ input = rewriteProgram(input, rewriteinputruby)
 # two directions
 echo "after ruby ", dump(input, 0, true)
 input = rewriteProgram(input, rewritenim)
-# echo "after rewrite ", dump(input, 0, true)
+echo "after rewrite ", dump(input, 0, true)
 
 include generator
 
