@@ -27,7 +27,7 @@ proc generateType(generator: var Generator, typ: Type): PNode
 
 
 proc generateImports(generator: var Generator, imp: seq[Node]): PNode =
-  assert len(imp) == 0 or imp[0].kind == PyImport
+  assert len(imp) == 0 or imp[0].kind == Import
 
   var labels: seq[PNode] = @[]
   var aliases: seq[Node] = @[]
@@ -256,7 +256,7 @@ proc generateIf(generator: var Generator, node: Node): PNode =
       emitNode(last[1]))
     last = last[2]
     if not last.isNil and len(last.children) > 0:
-      while not last.isNil and last.kind == Sequence and len(last.children) == 1:
+      while not last.isNil and last.kind == Code and len(last.children) == 1:
         last = last[0]
       if last.kind != PyIf:
         result.add(elifBranch)
@@ -286,8 +286,8 @@ proc generateGroup(generator: var Generator, group: seq[Node]): PNode =
     e.declaration = Declaration.Existing
     result.add(emitNode(e))
 
-proc generateSequence(generator: var Generator, node: Node): PNode =
-  ensure(Sequence)
+proc generateCode(generator: var Generator, node: Node): PNode =
+  ensure(Code)
 
   result = nkStmtList.newTree()
   var z = 0
@@ -552,9 +552,9 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateIf(node)
   of NimWhen:
     result = generator.generateWhen(node)
-  of Sequence:
-    result = generator.generateSequence(node)
-  of PyCall, Call:
+  of Code:
+    result = generator.generateCode(node)
+  of Call:
     result = generator.generateCall(node)
   of PyReturn:
     result = generator.generateReturn(node)
@@ -589,7 +589,7 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateRangeLess(node)
   of PyDict:
     result = generator.generateDict(node)
-  of PyWhile:
+  of While:
     result = generator.generateWhile(node)
   of PyUnaryOp:
     result = generator.generateUnaryOp(node)
@@ -621,7 +621,7 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateTuple(node)
   of NimPrefix:
     result = generator.generatePrefix(node)
-  of PyImport:
+  of Import:
     result = generator.generateImport(node)
   of PyIndex:
     result = generator.generateIndex(node)

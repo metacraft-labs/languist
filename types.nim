@@ -1,4 +1,4 @@
-import sequtils, strutils, strformat, tables, sugar, hashes, gen_kind, sets, json, macros, terminal, helpers
+import sequtils, strutils, strformat, tables, sugar, hashes, gen_kind, sets, json, macros, terminal, helpers, os
 import
   compiler/[ast, astalgo, idents, msgs, renderer, lineinfos]
 
@@ -102,7 +102,7 @@ type
     hasYield*:    bool
 
   NodeKind* = enum
-    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float,
+    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import,
     RubySend, RubyInt, 
     PyAST, PyAdd, PyAnd, PyAnnAssign, PyAssert, PyAssign, PyAsyncFor, PyAsyncFunctionDef, PyAsyncWith, PyAttribute,
     PyAugAssign, PyAugLoad, PyAugStore, PyAwait, PyBinOp, PyBitAnd, PyBitOr, PyBitXor, PyBoolOp, PyBreak, PyBytes,
@@ -110,7 +110,7 @@ type
     PyDictComp, PyDiv, PyEllipsis, PyEq, PyExceptHandler, PyExpr, PyExpression,
     PyExtSlice, PyFloorDiv, PyFor, PyFormattedValue, PyFunctionDef, PyGeneratorExp, PyGlobal, PyGt, PyGtE,
     PyIf, PyIfExp, PyImport, PyImportFrom, PyIn, PyIndex, PyInteractive, PyInvert, PyIs, PyIsNot,
-    PyJoinedStr, PyLShift, PyLambda, PyList, PyListComp, PyLoad, PyLt, PyLtE, Sequence,
+    PyJoinedStr, PyLShift, PyLambda, PyList, PyListComp, PyLoad, PyLt, PyLtE,
     PyMatMult, PyMod, PyModule, PyMult,
     PyName, PyLabel, PyNameConstant, PyNodeTransformer, PyNodeVisitor, PyNonlocal, PyNot, PyNotEq, PyNotIn, PyInt, PyFloat, PyNone,
     PyOr, PyParam, PyPass, PyPow, PyPyCF_ONLY_AST, PyRShift, PyRaise, PyReturn,
@@ -582,6 +582,7 @@ var IntType = Type(kind: T.Simple, label: "Int")
 var BoolType = Type(kind: T.Simple, label: "Bool")
 var AnyType = Type(kind: T.Any)
 var VoidType = Type(kind: T.Simple, label: "Void")
+var StringType = Type(kind: T.Simple, label: "String")
 
 proc loadType*(typ: JsonNode): Type =
   if typ{"kind"}.isNil:
@@ -686,6 +687,7 @@ proc load*(file: string): TraceDB =
   for label, m in result.root:
     result.paths.add(label)
     result.modules.add(loadModule(m))
+    break
 
 
   
@@ -1080,6 +1082,16 @@ proc analyze(node: Node, env: Env) =
     discard
   of New:
     node.typ = Type(kind: T.Simple, label: node.children[0].label)
+  of While:
+    analyze(node.children[0], env)
+    if node.children[0].typ == IntType:
+      let child = node.children[0]
+      node.children[0] = compare(operator("!="), child, 0, BoolType)
+    elif node.children[0].typ == StringType:
+      let child = node.children[0]
+      node.children[0] = call(variable("not_empty"), child, BoolType)
+    for child in node.children[1 .. ^1]:
+      analyze(child, env)
   else:
     for child in node.children:
       analyze(child, env)
@@ -1090,8 +1102,8 @@ proc analyze(m: Module, env: Env) =
   for child in m.main:
     analyze(child, env)
 
-var traceDB = load("lang_traces.json")
-var input = traceDB.modules[0] #.classes[0]
+var traceDB = load(if paramCount() == 0: "lang_traces.json" else: paramStr(1))
+var input = traceDB.modules[0]
 var env = Env(parent: nil, types: initTable[string, Type]())
 dump dump(input, 0, true)
 
