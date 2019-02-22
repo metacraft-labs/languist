@@ -7,25 +7,26 @@ $lines = []
 $inter_traces = {}
 $inter_types = {}
 $call_lines = []
+$current_block = ""
 
 def trace_calls(data)
   new_trace = [data.path, data.lineno, data.defined_class, data.method_id, data.binding.local_variables.map { |a| [a, data.binding.local_variable_get(a).class]}, :input, nil]
   $call_lines.push(data.lineno)
   if $inter_traces[data.path][:method_lines].key?(data.lineno)
-    p data.lineno
-    $inter_traces[data.path][:method_lines][data.lineno][:args].each do |arg|
-      if arg[:label] == :self
-        arg[:typ] = load_type(data.binding.receiver.class)
-      else
-        arg[:typ] = load_type(data.binding.local_variable_get(arg[:label]).class)
+    if $inter_traces[data.path][:method_lines][data.lineno][:kind] == :NodeMethod && data.event != :b_call ||
+       $inter_traces[data.path][:method_lines][data.lineno][:kind] == :Block && data.event == :b_call
+      $inter_traces[data.path][:method_lines][data.lineno][:args].each do |arg|
+        if arg[:label] == :self
+          arg[:typ] = load_type(data.binding.receiver.class)
+        else
+          arg[:typ] = load_type(data.binding.local_variable_get(arg[:label]).class)
+        end
       end
     end
   end
 end
 
-t = TracePoint.new(:call, :c_call) do |tp|
-  p tp
-  # !tp.path.start_with?("/usr/lib/ruby/")
+t = TracePoint.new(:call, :c_call, :b_call) do |tp|
   if tp.path != "tracing.rb" && tp.defined_class != TracePoint && tp.defined_class != Kernel && tp.method_id != :disable && tp.method_id != :inherited && tp.defined_class != Class && tp.method_id != :method_added
     if !$inter_traces.key?(tp.path)
       $inter_traces[tp.path] = generate_ast(tp.path)
@@ -34,7 +35,7 @@ t = TracePoint.new(:call, :c_call) do |tp|
   end
 end
 
-t2 = TracePoint.new(:return, :c_return) do |tp|
+t2 = TracePoint.new(:return, :c_return, :b_return) do |tp|
   if tp.method_id != :new && tp.method_id != :initialize && caller.length > 1 && tp.path != "tracing.rb" && !tp.path.include?("did_you_mean")
     path, line, *_ = caller[1].split(':')
     line = line.to_i
@@ -52,8 +53,11 @@ t2 = TracePoint.new(:return, :c_return) do |tp|
     if $call_lines.length > 0
       method_line = $call_lines.pop
       if $inter_traces.key?(tp.path) && $inter_traces[tp.path][:method_lines].key?(method_line)
-        p method_line
-        $inter_traces[tp.path][:method_lines][method_line][:return_type] = typ
+        kind = $inter_traces[tp.path][:method_lines][method_line][:kind]
+        is_block = tp.event == :b_return
+        if kind == :Block && is_block || kind == :NodeMethod && !is_block
+          $inter_traces[tp.path][:method_lines][method_line][:return_type] = typ
+        end
       end
     end
   end
@@ -63,6 +67,8 @@ t3 = TracePoint.new(:raise) do |tp|
   exception = tp.raised_exception
   $trace[-1][-1] = exception
 end
+
+  
 
 
 
@@ -172,7 +178,11 @@ class InterTranslator
   def process
     res = {imports: [], main: [], classes: [], lines: {}, method_lines: {}}
     @inter_ast = res
-    @ast.children.each do |it|
+    children = [@ast]
+    if @ast.type == :begin
+      children = @ast.children
+    end
+    children.each do |it|
       if it.type == :class
         res[:classes].push(process_node it)
       elsif it.type == :send && it.children[0].nil? && it.children[1] == :require
@@ -202,10 +212,16 @@ class InterTranslator
         value = {kind: :NodeMethod, label: {typ: :Variable, label: node.children[0]}, args: [], code: [], typ: nil, return_type: nil}
         value[:args] = [{kind: :Variable, label: :self, typ: nil}] + node.children[1].children.map { |it| process_node it }
         value[:code] = node.children[2 .. -1].map { |it| process_node it }
-        # value[:args] = args
-        # value[:code] 
         @inter_ast[:method_lines][node.loc.line] = value
         return value.tap { |t| t[:line] = node.loc.line; t[:column] = node.loc.column }
+      elsif node.type == :block
+        value = {kind: :Block, label: {typ: :Variable, label: ""}, args: [], code: [], typ: nil, return_type: nil}
+        value[:args] = node.children[1].children.map { |it| process_node it }
+        value[:code] = node.children[2 .. -1].map { |it| process_node it }
+        @inter_ast[:method_lines][node.loc.line] = value
+        child = process_node node.children[0]
+        child[:children].push(value)
+        return child.tap { |t| t[:line] = node.loc.line; t[:column] = node.loc.column }
       end
       value = {kind: get_kind(node.type), children: node.children.map { |it| process_node it }, typ: nil}
       if node.type == :send
@@ -369,8 +385,6 @@ def compile_child child
     else
       if !child[:typ].nil? || !child[:children][2].nil?
         m = {kind: :Send, children: child[:children].map { |l| compile_child l }, typ: child[:typ]}
-        p "send"
-        p m[:children]
         if m[:children][1][:kind] == :Variable
           m[:children][1] = {kind: :String, text: m[:children][1][:label]}
         end
@@ -388,7 +402,7 @@ def compile_child child
     res[:code] = child[:code].map { |it| compile_child it }
     res
   else
-    p child
+    # p child
     child
   end
 end

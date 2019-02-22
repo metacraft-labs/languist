@@ -102,8 +102,8 @@ type
     hasYield*:    bool
 
   NodeKind* = enum
-    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import,
-    RubySend, RubyInt, 
+    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange,
+    
     PyAST, PyAdd, PyAnd, PyAnnAssign, PyAssert, PyAssign, PyAsyncFor, PyAsyncFunctionDef, PyAsyncWith, PyAttribute,
     PyAugAssign, PyAugLoad, PyAugStore, PyAwait, PyBinOp, PyBitAnd, PyBitOr, PyBitXor, PyBoolOp, PyBreak, PyBytes,
     PyCall, PyClassDef, PyCompare, PyConstant, PyContinue, PyDel, PyDelete, PyDict,
@@ -151,7 +151,7 @@ type
       fields*: seq[Field]
       methods*: seq[Field]
       docstring*: seq[string]
-    of NodeMethod:
+    of NodeMethod, Block:
       # id*: string
       isIterator*: bool
       isMethod*: bool
@@ -430,7 +430,9 @@ proc dump*(node: Node, depth: int, typ: bool = false): string =
         $node.kind & "($1)$2" % [node.label, typDump]
       of String:
         "String($1)$2" % [node.text, typDump]
-      of NodeMethod:
+      of NodeMethod, Block:
+        if node.typ.isNil:
+          echo "BLOCK NIL"
         "Method($1)\n$2\n$3" % [node.label, node.args.mapIt(dump(it, 0, typ)).join(" "), node.code.mapIt(dump(it, depth + 1, typ)).join("\n")]
       of Class:
         "Class($1)\n$2" % [node.label, node.methods.mapIt(dump(it.node, depth + 1, typ)).join(" ")]
@@ -547,7 +549,7 @@ proc deepCopy*(a: Node): Node =
     result.methods = a.methods.mapIt(Field(label: it.label, node: deepCopy(it.node)))
     result.label = a.label
 
-  of NodeMethod:
+  of NodeMethod, Block:
     result.args = a.args.mapIt(deepCopy(it))
     result.code = a.code.mapIt(deepCopy(it))
     result.label = a.label
@@ -583,6 +585,7 @@ var BoolType = Type(kind: T.Simple, label: "Bool")
 var AnyType = Type(kind: T.Any)
 var VoidType = Type(kind: T.Simple, label: "Void")
 var StringType = Type(kind: T.Simple, label: "String")
+var MethodType = Type(kind: T.Method)
 
 proc loadType*(typ: JsonNode): Type =
   if typ{"kind"}.isNil:
@@ -624,6 +627,8 @@ proc loadType*(typ: JsonNode): Type =
     else:
       result.label = typ{"label"}.getStr()
 
+proc loadMethod*(m: JsonNode, isBlock: bool = false): Node
+
 proc loadNode*(m: JsonNode): Node =
   if m{"kind"}.isNil:
     return nil
@@ -636,6 +641,9 @@ proc loadNode*(m: JsonNode): Node =
     result = Node(kind: Int, i: m{"i"}.getInt())
   of String:
     result = Node(kind: String, text: m{"text"}.getStr())
+  of Block:
+    # FAITH
+    return loadMethod(m, isBlock=true)
   else:
     result = genKind(Node, kind)
     if m{"children"}.isNil:
@@ -648,8 +656,10 @@ proc loadNode*(m: JsonNode): Node =
   # Faith
   result.typ = loadType(m{"typ"})
 
-proc loadMethod*(m: JsonNode): Node =
+proc loadMethod*(m: JsonNode, isBlock: bool = false): Node =
   result = Node(kind: NodeMethod)
+  if isBlock:
+    result = Node(kind: Block)
   result.label = m{"label"}{"label"}.getStr()
   result.args = m{"args"}.mapIt(loadNode(it))
   result.code = m{"code"}.mapIt(loadNode(it))
@@ -658,6 +668,8 @@ proc loadMethod*(m: JsonNode): Node =
   if result.typ.isNil:
     var args = result.args.mapIt(it.typ)
     result.typ = Type(kind: T.Method, args: args, returnType: result.returnType)
+    echo "BLOCK"
+    echo result.typ
 
 proc loadClass*(m: JsonNode): Node =
   result = Node(kind: Class)
@@ -719,6 +731,8 @@ type
 
 proc accepts(l: Type, r: Type): bool =
   if l.kind == T.Any:
+    return true
+  elif l.kind == T.Method and l.kind == r.kind and l.returnType.isNil:
     return true
   else:
     return l == r    
@@ -802,7 +816,7 @@ proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node): Node =
     for i, met in node.methods:
       newNode.methods[i].node = rewriteNode(met.node, rewrite, blockNode)
 
-  elif node.kind == NodeMethod:
+  elif node.kind == NodeMethod or node.kind == Block:
     for i, child in node.code:
       newNode.code[i] = rewriteNode(child, rewrite, blockNode)
 
@@ -857,6 +871,7 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)]): NimNode =
     result = nnkCall.newTree(ident(call))
     for son in sons:
       result.add(son)
+    echo result.repr
     return result
 
 include ast_dsl
@@ -984,17 +999,23 @@ macro rewrite*(input: untyped, output: untyped): untyped =
 
 var rewriteList = Rewrite(rules: @[])
 
-rewrite do (x: Int):
-  x.is_positive()
-do:
-  interlang:
-    send(args["x"], "is_positive", BoolType)
+# rewrite do (x: Int):
+#   x.is_positive()
+# do:
+#   interlang:
+#     send(args["x"], "is_positive", BoolType)
     
 rewrite do (x: Any):
   puts x
 do:
   interlang:
     call(variable("echo"), args["x"], VoidType)
+
+rewrite do (x: Int, y: Method):
+  x.times(y)
+do:
+  interlang:
+    forrange(0, args["x"], args["y"])
 
 var rewriteinputruby = rewriteList
 rewriteList = Rewrite(rules: @[])
@@ -1052,7 +1073,7 @@ proc analyze(node: Node, env: Env) =
   of Class:
     for met in node.methods.mitems:
       analyze(met.node, env)
-  of NodeMethod:
+  of NodeMethod, Block:
     var args = initTable[string, Type]()
     for arg in node.args:
       args[arg.label] = arg.typ

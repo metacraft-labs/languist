@@ -135,8 +135,9 @@ proc generateType(generator: var Generator, typ: Type): PNode =
 proc generateArgs(generator: var Generator, nodes: seq[Node], typ: Type): PNode
 
 proc generateForward(generator: var Generator, function: Node): PNode =
-  assert function.kind in {NodeMethod}
+  assert function.kind in {NodeMethod, Block}
 
+  echo function.typ.isNil
   let args = generator.generateArgs(function.args, function.typ)
 
   var name = generateIdent(function.label)
@@ -163,13 +164,18 @@ proc generateForward(generator: var Generator, function: Node): PNode =
         name.add(generateIdent(arg))
 
   if not function.isIterator:
-    if function.isMethod:
+    if function.kind == Block:
+      result = nkLambda.newTree()
+    elif function.isMethod:
       result = nkMethodDef.newTree()
     else:
       result = nkProcDef.newTree()
   else:
     result = nkIteratorDef.newTree()
-  result.add(name)
+  if function.kind == NodeMethod:
+    result.add(name)
+  else:
+    result.add(emptyNode)
   result.add(emptyNode)
   result.add(emptyNode)
   result.add(args)
@@ -193,7 +199,7 @@ proc generateArgs(generator: var Generator, nodes: seq[Node], typ: Type): PNode 
     z += 1
 
 proc generateMethod(generator: var Generator, met: Node): PNode =
-  assert met.kind in {NodeMethod}
+  assert met.kind in {NodeMethod, Block}
 
   result = generator.generateForward(met)
 
@@ -323,7 +329,7 @@ proc generateCall(generator: var Generator, node: Node): PNode =
 
 
 proc generateReturn(generator: var Generator, node: Node): PNode =
-  ensure(PyReturn)
+  ensure(Return)
 
   result = nkReturnStmt.newTree(emitNode(node[0]))
 
@@ -434,6 +440,16 @@ proc generateFor(generator: var Generator, node: Node): PNode =
       emitNode(node[0][1]),
       emitNode(node[1]),
       code)
+
+proc generateForRange(generator: var Generator, node: Node): PNode =
+  var code = nkStmtList.newTree()
+  for child in node[2]:
+    code.add(emitNode(child))
+  rangeCode = nkInfix.newTree(generateIdent("..<"), emitNode(node[0]), emitNode(node[1]))
+  result = nkForStmt.newTree(
+    emitNode(node[0]),
+    rangeCode,
+    code)
 
 proc generateList(generator: var Generator, node: Node): PNode =
   result = nkPrefix.newTree(generateIdent("@"), nkBracket.newTree())
@@ -556,7 +572,7 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateCode(node)
   of Call:
     result = generator.generateCall(node)
-  of PyReturn:
+  of Return:
     result = generator.generateReturn(node)
   of Int, PyInt:
     result = generator.generateInt(node)
@@ -578,8 +594,10 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateNameConstant(node)
   of PyFor:
     result = generator.generateFor(node)
-  of PyExpr:
-    result = generator.generateNode(node[0])
+  of ForRange:
+    result = generator.generateForRange(node)
+  of Block:
+    result = generator.generateMethod(node)
   of PyList:
     if homogeneous(node):
       result = generator.generateList(node)

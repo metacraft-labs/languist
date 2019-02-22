@@ -143,11 +143,21 @@ macro input_send*(receiver: untyped, call: untyped, typ: untyped): untyped =
   result = quote:
     Node(kind: Send, children: @[`receiver`, Node(kind: String, text: `call`)], typ: `t`)
 
-macro send*(receiver: untyped, call: untyped, typ: untyped = nil): untyped =
+macro send*(receiver: untyped, call: untyped, args: varargs[untyped], typ: untyped = nil): untyped =
   var children = nnkPrefix.newTree(ident("@"), nnkBracket.newTree())
+  for child in args:
+    children[1].add(child)
   let t = if typ.isNil: newNilLit() else: typ
   result = quote:
-    Node(kind: Send, children: @[`receiver`, Node(kind: String, text: `call`)], typ: `t`, isFinished: true)
+    Node(kind: Send, children: @[`receiver`, Node(kind: String, label: `call`)].concat(`children`), typ: `t`, isFinished: true)
+  echo result.repr
+
+# macro send*(receiver: untyped, call: untyped, typ: untyped = nil): untyped =
+#   var children = nnkPrefix.newTree(ident("@"), nnkBracket.newTree())
+#   let t = if typ.isNil: newNilLit() else: typ
+#   echo receiver.repr
+#   result = quote:
+#     Node(kind: Send, children: @[`receiver`, Node(kind: String, text: `call`)], typ: `t`, isFinished: true)
 
 macro input_call*(f: untyped, args: untyped, typ: untyped = nil): untyped =
   var children = args
@@ -227,6 +237,18 @@ macro slice*(startA: untyped, finishA: untyped = nil, stepA: untyped = nil): unt
         `start`,
         `finish`,
         `step`],
+      isFinished: true)
+
+macro forrange*(startA: untyped, finish: untyped, code: untyped): untyped =
+  var start = startA
+  start = start.expandLiteral()
+  result = quote:
+    Node(
+      kind: ForRange,
+      children: @[
+        `start`,
+        `finish`,
+        `code`],
       isFinished: true)
 
 macro subscript*(sequenceA: untyped, indexA: untyped): untyped =
