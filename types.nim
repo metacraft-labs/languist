@@ -845,7 +845,15 @@ proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node): Node =
 
 var inRuby {.compileTime.} = true
 
-proc compileNode(node: NimNode, replaced: seq[(string, NimNode)]): NimNode =
+proc compileNode(node: NimNode, replaced: seq[(string, NimNode)], isOutputArg: bool = false): NimNode =
+  var typ: NimNode
+  var isOutput = isOutputArg
+  if node.kind == nnkDo and isOutput:
+    typ = ident($node[3][0] & "Type")
+    result = compileNode(node[^1], replaced, isOutput)
+    result.add(typ)
+    return
+  dump node.lisprepr
   case node.kind
   of nnkCharLit..nnkUInt64Lit:
     return node
@@ -857,15 +865,23 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)]): NimNode =
     return nnkCall.newTree(ident"variable", newLit($node))
   of nnkIdent:
     let label = $node
-    var typ = newNilLit()
-    for e in replaced:
-      if label == e[0]:
-        typ = e[1]
-    return nnkCall.newTree(ident"variable", newLit($node), typ)
+    var returnType = newNilLit()
+    if not isOutput:
+      for e in replaced:
+        if label == e[0]:
+          typ = e[1]
+      return nnkCall.newTree(ident"variable", newLit($node), returnType)
+    else:
+      dump replaced
+      for e in replaced:
+        dump e
+        if label == e[0]:
+          return nnkBracketExpr.newTree(ident"args", newLit($node))
+      return nnkCall.newTree(ident"variable", newLit($node), returnType)
   of nnkStmtList:
-    return compileNode(node[0], replaced)
+    return compileNode(node[0], replaced, isOutput)
   else:
-    var sons = node.mapIt(compileNode(it, replaced))
+    var sons = node.mapIt(compileNode(it, replaced, isOutput))
     var call = ""
     case node.kind:
     of nnkCall, nnkCommand:
@@ -879,6 +895,9 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)]): NimNode =
         sons = sons.concat(oldSons[1 .. ^1])
         if inRuby and ($sons[1]).startsWith("is_"):
           sons[1] = newLit(($(sons[1]))[3 .. ^1] & "?")
+    # Praise the Lord!
+    of nnkPrefix:
+      call = "call"
     of nnkDotExpr:
       call = "attribute"
       sons[1] = sons[1][1]
@@ -890,7 +909,6 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)]): NimNode =
     result = nnkCall.newTree(ident(call))
     for son in sons:
       result.add(son)
-    echo result.repr
     return result
 
 include ast_dsl
@@ -923,12 +941,12 @@ proc args(node: NimNode, replaced: seq[(string, NimNode)]): seq[seq[int]] =
     result.add(@[])
     discard args(node, arg[0], result[^1])
     
-proc generateInput(input: NimNode): NimNode =
+proc generateInput(input: NimNode): (NimNode, seq[(string, NimNode)]) =
   let args = input[3]
   var help = ident("help")
-  result = quote:
+  var res = quote:
     var `help` = RewriteRule(input: nil, output: nil, replaced: @[], isGeneric: false)
-  result = nnkStmtList.newTree(result)
+  res = nnkStmtList.newTree(res)
   var replaced2: seq[(string, NimNode)]
 
   for i, arg in args:
@@ -939,16 +957,14 @@ proc generateInput(input: NimNode): NimNode =
         `help`.replaced.add((
           `label`,
           `typ`))
-      result.add(n)
+      res.add(n)
       replaced2.add(($label, typ))
 
   let h = compileNode(input[^1], replaced2)
   var n = quote:
     `help`.input = `h`
-  result.add(n)
+  res.add(n)
   let args2 = args(h, replaced2)
-  # dump args2
-  # dump h.repr
   n = quote:
     @[]
   for argList in args2:
@@ -959,18 +975,19 @@ proc generateInput(input: NimNode): NimNode =
     n[1].add(m)
   n = quote:
     `help`.args = `n`
-  result.add(n)
+  res.add(n)
   n = quote:
     rewriteList.rules.add(`help`)
-  result.add(n)
+  res.add(n)
+  result = (res, replaced2)
 
 
 macro rewrite*(input: untyped, output: untyped): untyped =
-  let inputNode = generateInput(input)
-  assert output.kind == nnkStmtList and output[0][0].repr == "interlang"
+  let (inputNode, replaced) = generateInput(input)
   result = inputNode
   let help = ident("help")
-  let code = output[0][1]
+  let outputNode = compileNode(output, replaced, true)
+  let code = outputNode
   let outputCall = nnkLambda.newTree(
     newEmptyNode(),
     newEmptyNode(),
@@ -1014,33 +1031,31 @@ macro rewrite*(input: untyped, output: untyped): untyped =
   result = quote:
     block:
       `result`
-  # dump result.repr
+  dump result.repr
 
 var rewriteList = Rewrite(rules: @[])
     
 rewrite do (x: Any):
   puts x
-do:
-  interlang:
-    call(variable("echo"), args["x"], VoidType)
+do -> String:
+  echo(x)
 
 rewrite do (x: Any):
   x.to_s()
-do:
-  interlang:
-    call(variable("$"), args["x"], StringType)
-
+do -> String:
+  $x
+  
 rewrite do (x: String, y: String):
   x + y
-do:
-  interlang:
-    binop(operator("&"), args["x"], args["y"], StringType)
+do -> String:
+  x & y
 
-rewrite do (x: Int, y: Method):
-  x.times(y)
-do:
-  interlang:
-    forrange(args["y"].args[0], 0, args["x"], Node(kind: Block, children: args["y"].code))
+# TODO
+# rewrite do (x: Int, y: Method):
+#   x.times(y)
+# do:
+#   interlang:
+#     forrange(args["y"].args[0], 0, args["x"], Node(kind: Block, children: args["y"].code))
 
 var rewriteinputruby = rewriteList
 rewriteList = Rewrite(rules: @[])
@@ -1050,15 +1065,13 @@ static:
 
 rewrite do (x: Int):
   x.is_positive()
-do:
-  interlang:
-    compare(operator(">"), args["x"], 0, BoolType)
+do -> Bool:
+  x > 0
 
 rewrite do (x: Any):
   echo(x)
-do:
-  interlang:
-    call(variable("echo"), args["x"], VoidType)
+do -> Void:
+  echo(x)
 
 var rewritenim = rewriteList
 
