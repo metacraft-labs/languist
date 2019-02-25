@@ -1,6 +1,7 @@
 require 'json'
 require 'parser/current'
 require 'ast'
+require 'set'
 
 $trace = []
 $lines = []
@@ -17,9 +18,9 @@ def trace_calls(data)
        $inter_traces[data.path][:method_lines][data.lineno][:kind] == :Block && data.event == :b_call
       $inter_traces[data.path][:method_lines][data.lineno][:args].each do |arg|
         if arg[:label] == :self
-          arg[:typ] = load_type(data.binding.receiver.class)
+          arg[:typ] = load_type(data.binding.receiver)
         else
-          arg[:typ] = load_type(data.binding.local_variable_get(arg[:label]).class)
+          arg[:typ] = load_type(data.binding.local_variable_get(arg[:label]))
         end
       end
     end
@@ -41,7 +42,7 @@ t2 = TracePoint.new(:return, :c_return, :b_return) do |tp|
     line = line.to_i
     path = tp.path
     line = tp.lineno
-    typ = load_type(tp.return_value.class)
+    typ = load_type(tp.return_value)
     if $inter_traces.key?(path) && $inter_traces[path][:lines].key?(line)
       $inter_traces[path][:lines][line].each do |a|
         if a[:children][1][:kind] == :Variable && a[:children][1][:label] == tp.method_id
@@ -77,23 +78,42 @@ class Type
 end
 
 def load_type(arg)
-  if arg.nil?
+  if arg.class.nil?
     return {kind: :Simple, label: "Void"}
   end
-  res = if arg == Integer
+  klass = arg.class
+
+  variables = arg.instance_variables.map do |a|
+    load_type(arg.instance_variable_get(a)).tap { |b| b[:fieldLabel] = a.to_s[1 .. -1] }
+  end
+  
+  res = if klass == Integer
     {kind: :Simple, label: "Int"}
-  elsif arg == NilClass
+  elsif klass == NilClass
     {kind: :Simple, label: "Void"}
-  elsif arg == String
+  elsif klass == String
     {kind: :Simple, label: "String"}
-  elsif arg == TrueClass || arg == FalseClass
+  elsif klass == TrueClass || klass == FalseClass
     {kind: :Simple, label: "Bool"}
   else
-    {kind: :Simple, label: arg.name}
+    {kind: :Simple, label: klass.name}
   end
-  if res[:kind] == :Object
-    $inter_types[res[:label]] = res
+
+  # Praise the Lord!
+
+
+
+
+
+  if klass.is_a?(Class) && variables.length > 0
+    # ok for now
+    if !$inter_types[res[:label].to_sym]
+      res[:kind] = :Object
+      res[:fields] = variables
+      $inter_types[res[:label].to_sym] = res
+    end
   end
+  
   res
 end
 
@@ -264,11 +284,15 @@ class InterTranslator
   end
 
   def process_ivar(node)
-    {kind: :Attribute, children: [{kind: :Self}, {kind: :Variable, label: node.children[0]}]}
+    {kind: :Attribute, children: [{kind: :Self}, {kind: :String, text: node.children[0][1 .. -1]}]}
   end
 
   def process_lvar(node)
     {kind: :Variable, label: node.children[0]}
+  end
+
+  def process_ivasgn(node)
+    {kind: :Assign, children: [{kind: :Attribute, children: [{kind: :Self}, {kind: :String, text: node.children[0][1 .. -1]}]}, process_node(node.children[1])]}
   end
 
   def process_nil(node)
@@ -374,6 +398,8 @@ def generate_path(path, methods, traces, inter_traces)
   inter_traces[path] = generate_inter_traces(traces, methods, ast)
 end
 
+OPERATORS = Set.new [:+, :-, :*, :/]
+
 def compile_child child
   if child[:kind] == :RubySend
     if child[:children][0][:kind] == :Nil
@@ -383,15 +409,22 @@ def compile_child child
         child[:children][1]
       end
     else
-      if !child[:typ].nil? || !child[:children][2].nil?
-        m = {kind: :Send, children: child[:children].map { |l| compile_child l }, typ: child[:typ]}
-        if m[:children][1][:kind] == :Variable
-          m[:children][1] = {kind: :String, text: m[:children][1][:label]}
-        end
-        m
+      m = if !child[:typ].nil? || !child[:children][2].nil?
+        {kind: :Send, children: child[:children].map { |l| compile_child l }, typ: child[:typ]}
       else
         {kind: :Attribute, children: child[:children].map { |l| compile_child l }, typ: child[:typ]}
       end
+      p m
+      if m[:children][1][:kind] == :Variable
+        m[:children][1] = {kind: :String, text: m[:children][1][:label]}
+      end
+      if m[:kind] == :Send && OPERATORS.include?(m[:children][1][:text].to_sym)
+        op = m[:children][1]
+        op[:kind] = :Operator
+        op[:label] = op[:text]
+        m = {kind: :BinOp, children: [op, m[:children][0], m[:children][2]], typ: m[:typ]}
+      end
+      m
     end.tap { |t| t[:line] = child[:line]; t[:column] = child[:column] }
   elsif child.key?(:children)
     res = child
@@ -412,10 +445,20 @@ def compile traces
     file[:main] = file[:main].map do |child|
       compile_child(child)
     end
+
+    p $inter_types
+    
     file[:classes] = file[:classes].map do |klass|
-      {kind: klass[:kind],
+      mercy = klass[:children][2]
+      if mercy[:kind] == :RubyBegin
+        mercy = mercy[:children]
+      else
+        mercy = klass[:children][2 .. -1]
+      end
+        
+      {kind: :Class,
        label: klass[:children][0][:label],
-       methods: klass[:children][2 .. -1].map { |met| {label: met[:label][:label], node: compile_child(met)} },
+       methods: mercy.map { |met| {label: met[:label][:label], node: compile_child(met)} },
        fields: [],
        typ: $inter_types[klass[:children][0][:label]]}
     end

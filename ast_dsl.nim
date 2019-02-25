@@ -7,13 +7,13 @@ proc expandLiteral(node: var NimNode): NimNode =
   case node.kind:
   of nnkCharLit:
     result = quote:
-      Node(kind: PyChar, c: ' ')
+      Node(kind: Char, c: ' ')
   of nnkIntLit..nnkUInt64Lit:
     result = quote:
-      Node(kind: PyInt, i: `node`)
+      Node(kind: Int, i: `node`)
   of nnkFloatLit..nnkFloat128Lit:
     result = quote:
-      Node(kind: PyFloat, f: `node`)
+      Node(kind: Float, f: `node`)
   of nnkStrLit..nnkTripleStrLit:
     result = node
       
@@ -29,6 +29,9 @@ proc expandLiteral(node: var NimNode): NimNode =
 
 macro pyLambda*(args: seq[untyped], argTypes: seq[untyped], a: seq[untyped]): untyped =
   nil
+
+template raw*(label: untyped): untyped =
+  Node(kind: Raw, label: `label`)
 
 macro attribute*(label: static[string]): untyped =
   let fields = label.split(".")
@@ -147,11 +150,16 @@ macro send*(receiver: untyped, call: untyped, args: varargs[untyped], typ: untyp
   var children = nnkPrefix.newTree(ident("@"), nnkBracket.newTree())
   for child in args:
     children[1].add(child)
-  let t = if typ.isNil: newNilLit() else: typ
-  result = quote:
-    Node(kind: Send, children: @[`receiver`, Node(kind: String, label: `call`)].concat(`children`), typ: `t`, isFinished: true)
-  echo result.repr
+  children = quote do: cast[seq[Node]](`children`)
 
+  let t = if typ.isNil: newNilLit() else: typ
+  if args.len > 0:
+    result = quote:
+      Node(kind: Send, children: @[`receiver`, Node(kind: String, text: `call`)].concat(`children`), typ: `t`, isFinished: true)
+  else:
+    result = quote:
+      Node(kind: Send, children: @[`receiver`, Node(kind: String, text: `call`)], typ: `t`, isFinished: true)
+  
 # macro send*(receiver: untyped, call: untyped, typ: untyped = nil): untyped =
 #   var children = nnkPrefix.newTree(ident("@"), nnkBracket.newTree())
 #   let t = if typ.isNil: newNilLit() else: typ
@@ -188,9 +196,9 @@ macro call*(f: untyped, args: untyped, typ: untyped = nil): untyped =
   result = quote:
     Node(kind: Call, children: @[`f`].concat(`children`), typ: `t`, isFinished: true)
 
-template operator*(op: untyped): untyped =
+template operator*(op: untyped, ignore: untyped = nil): untyped =
   Node(
-    kind: PyOperator,
+    kind: Operator,
     label: `op`,
     isFinished: true)
 
@@ -207,16 +215,16 @@ macro compare*(op: untyped, left: untyped, right: untyped, typ: untyped): untype
       typ: `typ`,
       isFinished: true)
 
-macro binop*(left: untyped, op: untyped, right: untyped, typ: untyped = nil): untyped =
+macro binop*(op: untyped, left: untyped, right: untyped, typ: untyped = nil): untyped =
   var (l, r) = (left, right)
   (l, r) = (l.expandLiteral(), r.expandLiteral())
   let t = if typ.kind == nnkNilLit: newNilLit() else: typ
   result = quote:
     Node(
-      kind: PyBinOp,
+      kind: BinOp,
       children: @[
-        `l`,
         `op`,
+        `l`,
         `r`],
       typ: `t`,
       isFinished: true)
@@ -239,13 +247,14 @@ macro slice*(startA: untyped, finishA: untyped = nil, stepA: untyped = nil): unt
         `step`],
       isFinished: true)
 
-macro forrange*(startA: untyped, finish: untyped, code: untyped): untyped =
+macro forrange*(label: untyped, startA: untyped, finish: untyped, code: untyped): untyped =
   var start = startA
   start = start.expandLiteral()
   result = quote:
     Node(
       kind: ForRange,
       children: @[
+        `label`,
         `start`,
         `finish`,
         `code`],

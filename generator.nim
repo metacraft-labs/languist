@@ -13,7 +13,12 @@ let emptyNode = newNode(nkEmpty)
 
 macro generateIdent(s: untyped): untyped =
   result = quote:
-    newIdentNode(PIdent(s: translateIdentifier(`s`, generator.identifierCollisions)), TLineInfo())
+    let label = translateIdentifier(`s`, generator.identifierCollisions)
+    var res = newIdentNode(PIdent(s: label), TLineInfo())
+    if label == "$":
+      res = nkAccQuoted.newTree(res)
+    res
+
 
 macro generateDirectIdent(s: untyped): untyped =
   result = quote:
@@ -106,7 +111,7 @@ proc generateType(generator: var Generator, typ: Type): PNode =
         typLabel = "typedesc"
       elif typLabel == "bytes":
         typLabel = "cstring"
-      elif typLabel in @["Int", "Void"]:
+      elif typLabel in @["Int", "Void", "Bool", "String"]:
         typLabel = typLabel.toLowerAscii()
       result = generateIdent(typLabel)
     of T.Tuple:
@@ -129,8 +134,8 @@ proc generateType(generator: var Generator, typ: Type): PNode =
       result = generateIdent($typ.kind)
     if typ.isVar:
       result = nkVarTy.newTree(result)
-    elif typ.isRef:
-      result = nkRefTy.newTree(result)
+    # elif typ.isRef:
+      # result = nkRefTy.newTree(result)
 
 proc generateArgs(generator: var Generator, nodes: seq[Node], typ: Type): PNode
 
@@ -231,9 +236,9 @@ proc generateDeclaration(generator: var Generator, declaration: Declaration): st
   result = declarations[declaration]
 
 proc generateAssign(generator: var Generator, node: Node): PNode =
-  ensure(PyAssign)
+  ensure(Assign)
 
-  let name = emitNode(node[0][0])
+  let name = emitNode(node[0])
   let value = emitNode(node[1])
   case node.declaration:
   of Declaration.Var:
@@ -245,18 +250,24 @@ proc generateAssign(generator: var Generator, node: Node): PNode =
   of Declaration.Existing:
     result = nkAsgn.newTree(name, value)
 
+proc generateNew(generator: var Generator, node: Node): PNode =
+  let good = generateIdent("init" & node[0].label)
+  result = nkCall.newTree(good)
+  for arg in node.children[1 .. ^1]:
+    result.add(emitNode(arg))
+
 proc generateVariable(generator: var Generator, node: Node): PNode =
   result = generateIdent(node.label)
 
 proc generateIf(generator: var Generator, node: Node): PNode =
   # ugh python uses if(test, body, orelse=if(test, body, orelse..))
   # and nim if(elif(test, body), elif(test, body)..)
-  ensure(PyIf)
+  ensure(If)
 
   result = nkIfStmt.newTree()
 
   var last = node
-  while not last.isNil and last.kind == PyIf:
+  while not last.isNil and last.kind == If:
     var elifBranch = nkElifBranch.newTree(
       emitNode(last[0]),
       emitNode(last[1]))
@@ -264,7 +275,7 @@ proc generateIf(generator: var Generator, node: Node): PNode =
     if not last.isNil and len(last.children) > 0:
       while not last.isNil and last.kind == Code and len(last.children) == 1:
         last = last[0]
-      if last.kind != PyIf:
+      if last.kind != If:
         result.add(elifBranch)
         result.add(nkElse.newTree(emitNode(last)))
         break
@@ -281,7 +292,7 @@ proc generateWhen(generator: var Generator, node: Node): PNode =
     result[0].add(nkElse.newTree(emitNode(node[2])))
 
 proc generateGroup(generator: var Generator, group: seq[Node]): PNode =
-  assert group[0].kind == PyAssign
+  assert group[0].kind == Assign
   result = case group[0].declaration:
     of Declaration.Var: nkVarSection.newTree()
     of Declaration.Let: nkLetSection.newTree()
@@ -301,7 +312,7 @@ proc generateCode(generator: var Generator, node: Node): PNode =
     var child = node[z]
     var group: seq[Node] = @[]
     while z < len(node.children) - 1 and not node[z + 1].isNil and
-          child.kind == PyAssign and node[z + 1].kind == PyAssign and
+          child.kind == Assign and node[z + 1].kind == Assign and
           child.declaration != Declaration.Existing and child.declaration == node[z + 1].declaration:
       group.add(node[z])
       z += 1
@@ -338,7 +349,7 @@ proc generateInt(generator: var Generator, node: Node): PNode =
   result.intVal = node.i
 
 proc generateFloat(generator: var Generator, node: Node): PNode =
-  ensure(PyFloat)
+  ensure(Float)
 
   result = nkFloatLit.newNode()
   result.floatVal = node.f
@@ -388,11 +399,11 @@ proc generateOp(generator: var Generator, op: Node): PNode =
   result = generateIdent(s)
 
 proc generateBinOp(generator: var Generator, node: Node): PNode =
-  ensure(PyBinOp)
+  ensure(BinOp)
 
   result = nkInfix.newTree(
-    generator.generateOp(node[1]),
-    emitNode(node[0]),
+    generateIdent(node[0].label),
+    emitNode(node[1]),
     emitNode(node[2]))
 
 proc generateCompare(generator: var Generator, node: Node): PNode =
@@ -443,9 +454,9 @@ proc generateFor(generator: var Generator, node: Node): PNode =
 
 proc generateForRange(generator: var Generator, node: Node): PNode =
   var code = nkStmtList.newTree()
-  for child in node[2]:
+  for child in node[3].children:
     code.add(emitNode(child))
-  rangeCode = nkInfix.newTree(generateIdent("..<"), emitNode(node[0]), emitNode(node[1]))
+  let rangeCode = nkInfix.newTree(generateIdent("..<"), emitNode(node[1]), emitNode(node[2]))
   result = nkForStmt.newTree(
     emitNode(node[0]),
     rangeCode,
@@ -558,13 +569,17 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = nilNode
     return
   case node.kind:
-  of PyAssign:
+  of Assign:
     result = generator.generateAssign(node)
-  of PyLabel, Variable:
+  of New:
+    result = generator.generateNew(node)
+  of Variable:
     result = generator.generateVariable(node)
+  of Self:
+    result = generateIdent("self")
   of PyNone:
     result = nilNode
-  of PyIf:
+  of If:
     result = generator.generateIf(node)
   of NimWhen:
     result = generator.generateWhen(node)
@@ -574,9 +589,9 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateCall(node)
   of Return:
     result = generator.generateReturn(node)
-  of Int, PyInt:
+  of Int:
     result = generator.generateInt(node)
-  of PyFloat:
+  of Float:
     result = generator.generateFloat(node)
   of Attribute:
     result = generator.generateAttribute(node)
@@ -584,7 +599,7 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateSend(node)
   of String:
     result = generator.generateStr(node)
-  of PyBinOp:
+  of BinOp:
     result = generator.generateBinOp(node)
   of PyCompare:
     result = generator.generateCompare(node)

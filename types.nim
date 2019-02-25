@@ -22,6 +22,7 @@ type
     args*:     seq[Type]
     isRef*:    bool
     isVar*:    bool
+    fieldLabel*: string
     case kind*: T:
     of T.Simple:
       # Types of atom values and types for which we only know the name, not the structure
@@ -102,7 +103,7 @@ type
     hasYield*:    bool
 
   NodeKind* = enum
-    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange,
+    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char,
     
     PyAST, PyAdd, PyAnd, PyAnnAssign, PyAssert, PyAssign, PyAsyncFor, PyAsyncFunctionDef, PyAsyncWith, PyAttribute,
     PyAugAssign, PyAugLoad, PyAugStore, PyAwait, PyBinOp, PyBitAnd, PyBitOr, PyBitXor, PyBoolOp, PyBreak, PyBytes,
@@ -117,7 +118,7 @@ type
     PySet, PySetComp, PySlice, PyStarred, PyStore, PyStr, PySub, PySubscript, PySuite,
     PyTry, PyTuple,
     PyUAdd, PyUSub, PyUnaryOp, PyWhile, PyWith, PyYield, PyYieldFrom, Py_NUM_TYPES, Pyalias, Pyarguments, Pyarg, Pykeyword, Pycomprehension, Pywithitem,
-    PyOperator, PyVarDef, PyChar, PyConstr, NimWhen, PyHugeInt, NimRange, NimRangeLess, NimCommentedOut, NimExprColonExpr, NimInfix, NimAccQuoted, NimOf, NimPrefix, NimIf, NimElif, NimElse, NimTuple
+    PyVarDef, PyChar, PyConstr, NimWhen, PyHugeInt, NimRange, NimRangeLess, NimCommentedOut, NimExprColonExpr, NimInfix, NimAccQuoted, NimOf, NimPrefix, NimIf, NimElif, NimElse, NimTuple
 
   Declaration* {.pure.} = enum Existing, Let, Var, Const
 
@@ -133,17 +134,17 @@ type
     case kind*: NodeKind:
     of String:
       text*: string
-    of Int, PyInt:
+    of Int:
       i*: int
-    of PyFloat:
+    of Float:
       f*: float
-    of PyChar:
+    of Char:
       c*: char
     of PyHugeInt:
       h*: string
-    of PyAssign:
+    of Assign:
       declaration*: Declaration
-    of PyImport:
+    of Import:
       aliases*: seq[Node]
     of PyFunctionDef:
       calls*: HashSet[string]
@@ -426,7 +427,7 @@ proc dump*(node: Node, depth: int, typ: bool = false): string =
     left = case node.kind:
       of Int, PyInt:
         "Int($1)$2" % [$node.i, typDump]
-      of Variable, PyOperator:
+      of Variable, Operator:
         $node.kind & "($1)$2" % [node.label, typDump]
       of String:
         "String($1)$2" % [node.text, typDump]
@@ -445,6 +446,13 @@ proc dump*(m: Module, depth: int, typ: bool = false): string =
     
 proc dumpList*(nodes: seq[Node], depth: int): string =
   result = nodes.mapIt(dump(it, depth, true)).join("\n")
+
+var IntType = Type(kind: T.Simple, label: "Int")
+var BoolType = Type(kind: T.Simple, label: "Bool")
+var AnyType = Type(kind: T.Any)
+var VoidType = Type(kind: T.Simple, label: "Void")
+var StringType = Type(kind: T.Simple, label: "String")
+var MethodType = Type(kind: T.Method)
 
 const RUBY_LITERALS = {Int, Variable}
 
@@ -505,8 +513,6 @@ proc `$`*(node: Node): string =
 #         result = a.i == b.i
 #       of PyFloat:
 #         result = a.f == b.f
-#       of PyLabel, PyOperator:
-#         result = a.label == b.label
 #       of PyChar:
 #         result = a.c == b.c
 #       of PyHugeInt:
@@ -526,25 +532,20 @@ proc deepCopy*(a: Node): Node =
   case a.kind:
   of String:
     result.text = a.text
-  of Int, PyInt:
+    result.typ = StringType
+  of Int:
     result.i = a.i
-  of PyFloat:
-    result.f = a.f
-  of PyLabel, Variable, PyOperator:
+    result.typ = IntType
+  of Variable, Operator:
     result.label = a.label
   of PyHugeInt:
     result.h = a.h
-  of PyChar:
+  of Char:
     result.c = a.c
-  of PyAssign:
+  of Assign:
     result.declaration = a.declaration
-  of PyImport:
+  of Import:
     result.aliases = a.aliases.mapIt(deepCopy(it))
-  of PyFunctionDef:
-    result.isIterator = a.isIterator
-    result.isMethod = a.isMethod
-    result.calls = a.calls
-    result.isGeneric = a.isGeneric
   of Class:
     result.methods = a.methods.mapIt(Field(label: it.label, node: deepCopy(it.node)))
     result.label = a.label
@@ -580,12 +581,6 @@ proc translateIdentifier*(label: string, identifierCollisions: HashSet[string]):
   else:
     return label
 
-var IntType = Type(kind: T.Simple, label: "Int")
-var BoolType = Type(kind: T.Simple, label: "Bool")
-var AnyType = Type(kind: T.Any)
-var VoidType = Type(kind: T.Simple, label: "Void")
-var StringType = Type(kind: T.Simple, label: "String")
-var MethodType = Type(kind: T.Method)
 
 proc loadType*(typ: JsonNode): Type =
   if typ{"kind"}.isNil:
@@ -613,10 +608,12 @@ proc loadType*(typ: JsonNode): Type =
       result.base = nil
     else:
       result.base = loadType(typ{"base"})
-    # for field in typ{"fields"}:
-    #   var variable = PyVar(name: ($field{"label"})[1..^2])
-    #   variable.typ = importType(field{"type"})
-    #   result.fields.add(variable)
+    for element in typ{"fields"}:
+      let label = element{"fieldLabel"}.getStr()
+      let typ = loadType(element)
+      result.fields[label] = typ
+    result.isVar = false
+    result.isRef = true
   of T.Simple:
     result.label = typ{"label"}.getStr()
   else:
@@ -635,12 +632,14 @@ proc loadNode*(m: JsonNode): Node =
   var kind = parseEnum[NodeKind](m{"kind"}.getStr())
   
   case kind:
-  of Variable, PyOperator:
+  of Variable:
+    result = Node(kind: Variable, label: m{"label"}.getStr())
+  of Operator:
     result = Node(kind: Variable, label: m{"label"}.getStr())
   of Int:
-    result = Node(kind: Int, i: m{"i"}.getInt())
+    result = Node(kind: Int, i: m{"i"}.getInt(), typ: IntType)
   of String:
-    result = Node(kind: String, text: m{"text"}.getStr())
+    result = Node(kind: String, text: m{"text"}.getStr(), typ: StringType)
   of Block:
     # FAITH
     return loadMethod(m, isBlock=true)
@@ -679,7 +678,7 @@ proc loadClass*(m: JsonNode): Node =
   result.typ = loadType(m{"typ"})  
   if result.typ.isNil:
     # TODO
-    result.typ = Type(kind: T.Object)
+    result.typ = Type(kind: T.Object, fields: initTable[string, Type]())
 
 proc loadModule*(m: JsonNode): Module =
   result = Module()
@@ -737,24 +736,41 @@ proc accepts(l: Type, r: Type): bool =
   else:
     return l == r    
 
-proc find(l: Node, r: Node): bool =
+
+proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): bool =
+  if l.kind == BinOp and r.kind == BinOp:
+    dump dump(l, 0, true)
+    dump dump(r, 0, true)
   if l.kind == Variable:
-    if not l.typ.isNil and not l.typ.accepts(r.typ):
-      return false
+    var replace = false
+    for member in replaced:
+      if member.label == l.label:
+        replace = true
+        break
+    if replace:
+      dump l.typ
+      dump dump(r, 0, true)
+      if not l.typ.isNil and not l.typ.accepts(r.typ):
+        return false
+      else:
+        return true
     else:
-      return true
+      return l.label == r.label
+  if l.kind == Operator and r.kind in {Variable, Operator}:
+    return l.label == r.label
+  
   if l.kind != r.kind:
     return false
   case l.kind:
-  of Variable:
+  of Variable, Operator:
     result = l.label == r.label
   of String:
     result = l.text == r.text
-  of Int, PyInt:
+  of Int:
     result = l.i == r.i
-  of PyFloat:
+  of Float:
     result = l.f == r.f
-  of PyChar:
+  of Char:
     result = l.c == r.c
   else:
     result = true
@@ -763,17 +779,18 @@ proc find(l: Node, r: Node): bool =
   if l.children.len != r.children.len:
     return false
   for i in 0 .. < l.children.len:
-    if not l.children[i].find(r.children[i]):
+    dump i
+    if not l.children[i].find(r.children[i], replaced):
+      dump i
       return false
   result = true
+  if l.kind == BinOp and r.kind == BinOp:
+    dump result
   
 proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
   result = @[]
-  # dump rewrite.rules.len
   for rule in rewrite.rules:
-    if rule.input.find(node):
-      # dump rule.input
-      # dump node
+    if rule.input.find(node, rule.replaced):
       result.add(rule)
 
 proc replace(rule: RewriteRule, node: Node, blockNode: Node): Node =
@@ -788,16 +805,15 @@ proc replace(rule: RewriteRule, node: Node, blockNode: Node): Node =
       subNode = subNode.children[rule.args[i][k]]
       k += 1
     args[r] = subNode
-  # dump args
+  dump args
   result = rule.output(node, args, blockNode, rule)
-  # dump rule.args
+  dump rule.args
   result.isFinished = true
 
 proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node): Node
 
 proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node): Node =
   var b: seq[RewriteRule] = @[]
-  # dump node
   if not node.isFinished:
     b = rewrite.find(node)
   var newNode = node
@@ -866,6 +882,9 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)]): NimNode =
     of nnkDotExpr:
       call = "attribute"
       sons[1] = sons[1][1]
+    of nnkInfix:
+      call = "binop"
+      sons[0][0] = ident("operator")
     else:
       call = "unknown"
     result = nnkCall.newTree(ident(call))
@@ -998,12 +1017,6 @@ macro rewrite*(input: untyped, output: untyped): untyped =
   # dump result.repr
 
 var rewriteList = Rewrite(rules: @[])
-
-# rewrite do (x: Int):
-#   x.is_positive()
-# do:
-#   interlang:
-#     send(args["x"], "is_positive", BoolType)
     
 rewrite do (x: Any):
   puts x
@@ -1011,11 +1024,23 @@ do:
   interlang:
     call(variable("echo"), args["x"], VoidType)
 
+rewrite do (x: Any):
+  x.to_s()
+do:
+  interlang:
+    call(variable("$"), args["x"], StringType)
+
+rewrite do (x: String, y: String):
+  x + y
+do:
+  interlang:
+    binop(operator("&"), args["x"], args["y"], StringType)
+
 rewrite do (x: Int, y: Method):
   x.times(y)
 do:
   interlang:
-    forrange(0, args["x"], args["y"])
+    forrange(args["y"].args[0], 0, args["x"], Node(kind: Block, children: args["y"].code))
 
 var rewriteinputruby = rewriteList
 rewriteList = Rewrite(rules: @[])
@@ -1068,18 +1093,36 @@ var A = Type(kind: T.Object, label: "A", fields: initTable[string, Type]())
 #                 BoolType)])]))],
 #   typ: A)
 
-proc analyze(node: Node, env: Env) =
+proc analyze(node: Node, env: Env, class: Type = nil) =
   case node.kind:
   of Class:
     for met in node.methods.mitems:
-      analyze(met.node, env)
+      analyze(met.node, env, node.typ)
   of NodeMethod, Block:
     var args = initTable[string, Type]()
     for arg in node.args:
       args[arg.label] = arg.typ
+    if node.kind == NodeMethod:
+      args["self"] = class
+    if node.label == "to_s":
+      node.returnType = StringType
+      node.typ.returnType = StringType
+      node.label = "$"
+    elif node.label == "to_i":
+      node.returnType = IntType
+      node.typ.returnType = IntType
+      node.label = "int"
+    elif node.label == "initialize":
+      node.label = "init" & class.label
+      node.returnType = class
+      node.typ.returnType = class
+      node.args = node.args[1 .. ^1]
+      node.code = @[call(variable("new"), variable("result"))].concat(node.code)
     var met = childEnv(env, node.label, args, node.returnType)
+
     for subNode in node.code:
       analyze(subNode, met)
+
   of Send:
     analyze(node.children[0], env)
     for arg in node.children[2 .. ^1]:
@@ -1098,8 +1141,8 @@ proc analyze(node: Node, env: Env) =
     if node.children[0].kind == Variable:
       env[node.children[0].label] = node.children[0].typ
   of String:
-    discard
-  of PyInt, PyFloat, PyChar, PyHugeInt, PyAssign, PyFunctionDef, PyClassDef:
+    node.typ = StringType
+  of PyInt, PyFloat, PyChar, PyHugeInt, PyAssign, PyFunctionDef, PyClassDef, Char, Float:
     discard
   of New:
     node.typ = Type(kind: T.Simple, label: node.children[0].label)
@@ -1113,6 +1156,13 @@ proc analyze(node: Node, env: Env) =
       node.children[0] = call(variable("not_empty"), child, BoolType)
     for child in node.children[1 .. ^1]:
       analyze(child, env)
+  of Attribute:
+    analyze(node.children[0], env)
+    if node.children[0].typ.kind == Object:
+      let typ = node.children[0].typ.fields[node.children[1].text]
+      node.typ = typ
+  of Self:
+    node.typ = env["self"]
   else:
     for child in node.children:
       analyze(child, env)
@@ -1127,6 +1177,9 @@ var traceDB = load(if paramCount() == 0: "lang_traces.json" else: paramStr(1))
 var input = traceDB.modules[0]
 var env = Env(parent: nil, types: initTable[string, Type]())
 dump dump(input, 0, true)
+
+for child in input.classes:
+  env[child.label] = child.typ
 
 input.analyze(env)
 
