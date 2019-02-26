@@ -1113,6 +1113,12 @@ do:
   
   dependencies: @["tables"]
 
+rewrite do (x: Sequence, y: Method):
+  x.each(y)
+do:
+  code:
+    forin(args["y"].args[0], args["x"], Node(kind: Block, children: args["y"].code))
+
 var rewriteinputruby = rewriteList
 rewriteList = Rewrite(rules: @[])
 
@@ -1128,6 +1134,14 @@ rewrite do (x: Any):
   echo(x)
 do -> Void:
   echo(x)
+
+# TODO
+#rewrite do (x: Sequence, y: Method):
+#  x.map(y)
+#do:
+  #code:
+  #  send(args["x"], "mapIt", rewriteIt(args["y"]))
+ # dependencies: @["sequtils"]
 
 var rewritenim = rewriteList
 
