@@ -362,7 +362,7 @@ proc generateAttribute(generator: var Generator, node: Node): PNode =
   result = nkDotExpr.newTree(emitNode(node[0]), generateIdent(node[1].text))
 
 proc generateStr(generator: var Generator, node: Node): PNode =
-  ensure(String)
+  # ensure(String)
 
   result = nkStrLit.newNode()
   result.strVal = node.text
@@ -470,10 +470,10 @@ proc generateList(generator: var Generator, node: Node): PNode =
 proc generateRangeLess(generator: var Generator, node: Node): PNode =
   result = nkInfix.newTree(generateIdent("..<"), emitNode(node[0]), emitNode(node[1]))
 
-proc generateDict(generator: var Generator, node: Node): PNode =
+proc generateTable(generator: var Generator, node: Node): PNode =
   var dict = nkTableConstr.newTree()
-  for z in 0..<len(node[0].children):
-    dict.add(nkExprColonExpr.newTree(emitNode(node[0][z]), emitNode(node[1][z])))
+  for z in 0..<len(node.children):
+    dict.add(nkExprColonExpr.newTree(emitNode(node[z][0]), emitNode(node[z][1])))
   result = nkCall.newTree(nkDotExpr.newTree(dict, generateIdent("newTable")))
 
 proc generateWhile(generator: var Generator, node: Node): PNode =
@@ -597,7 +597,7 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateAttribute(node)
   of Send:
     result = generator.generateSend(node)
-  of String:
+  of String, Symbol:
     result = generator.generateStr(node)
   of BinOp:
     result = generator.generateBinOp(node)
@@ -620,8 +620,8 @@ proc generateNode(generator: var Generator, node: Node): PNode =
       result = generator.generateTuple(node)
   of NimRangeLess:
     result = generator.generateRangeLess(node)
-  of PyDict:
-    result = generator.generateDict(node)
+  of Table:
+    result = generator.generateTable(node)
   of While:
     result = generator.generateWhile(node)
   of PyUnaryOp:

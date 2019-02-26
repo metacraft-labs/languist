@@ -103,7 +103,7 @@ type
     hasYield*:    bool
 
   NodeKind* = enum
-    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char,
+    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, Table, Symbol, Pair,
     
     PyAST, PyAdd, PyAnd, PyAnnAssign, PyAssert, PyAssign, PyAsyncFor, PyAsyncFunctionDef, PyAsyncWith, PyAttribute,
     PyAugAssign, PyAugLoad, PyAugStore, PyAwait, PyBinOp, PyBitAnd, PyBitOr, PyBitXor, PyBoolOp, PyBreak, PyBytes,
@@ -132,7 +132,7 @@ type
     isFinished*: bool
     isReplace*: bool
     case kind*: NodeKind:
-    of String:
+    of String, Symbol:
       text*: string
     of Int:
       i*: int
@@ -429,8 +429,8 @@ proc dump*(node: Node, depth: int, typ: bool = false): string =
         "Int($1)$2" % [$node.i, typDump]
       of Variable, Operator:
         $node.kind & "($1)$2" % [node.label, typDump]
-      of String:
-        "String($1)$2" % [node.text, typDump]
+      of String, Symbol:
+        $node.kind & "($1)$2" % [node.text, typDump]
       of NodeMethod, Block:
         if node.typ.isNil:
           echo "BLOCK NIL"
@@ -453,6 +453,15 @@ var AnyType = Type(kind: T.Any)
 var VoidType = Type(kind: T.Simple, label: "Void")
 var StringType = Type(kind: T.Simple, label: "String")
 var MethodType = Type(kind: T.Method)
+var SequenceType     = Type(kind: T.Generic, label: "Sequence", genericArgs: @["T"])
+var TableType     = Type(kind: T.Generic, label: "Table", genericArgs: @["K", "V"])
+var SymbolType = Type(kind: T.Simple, label: "Symbol")
+
+proc sequenceType*(element: Type): Type =
+  result = Type(kind: T.Compound, args: @[element], original: SequenceType)
+
+proc tableType*(key: Type, value: Type): Type =
+  result = Type(kind: T.Compound, args: @[key, value], original: TableType)
 
 const RUBY_LITERALS = {Int, Variable}
 
@@ -549,7 +558,9 @@ proc deepCopy*(a: Node): Node =
   of Class:
     result.methods = a.methods.mapIt(Field(label: it.label, node: deepCopy(it.node)))
     result.label = a.label
-
+  of Symbol:
+    result.text = a.text
+    result.typ = SymbolType
   of NodeMethod, Block:
     result.args = a.args.mapIt(deepCopy(it))
     result.code = a.code.mapIt(deepCopy(it))
@@ -640,6 +651,8 @@ proc loadNode*(m: JsonNode): Node =
     result = Node(kind: Int, i: m{"i"}.getInt(), typ: IntType)
   of String:
     result = Node(kind: String, text: m{"text"}.getStr(), typ: StringType)
+  of Symbol:
+    result = Node(kind: Symbol, text: m{"text"}.getStr(), typ: SymbolType)
   of Block:
     # FAITH
     return loadMethod(m, isBlock=true)
@@ -766,6 +779,8 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
     result = l.label == r.label
   of String:
     result = l.text == r.text
+  of Symbol:
+    result = l.text == r.text
   of Int:
     result = l.i == r.i
   of Float:
@@ -853,7 +868,7 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)], isOutputArg: b
     result = compileNode(node[^1], replaced, isOutput)
     result.add(typ)
     return
-  dump node.lisprepr
+  # dump node.lisprepr
   case node.kind
   of nnkCharLit..nnkUInt64Lit:
     return node
@@ -986,7 +1001,12 @@ macro rewrite*(input: untyped, output: untyped): untyped =
   let (inputNode, replaced) = generateInput(input)
   result = inputNode
   let help = ident("help")
-  let outputNode = compileNode(output, replaced, true)
+  var outputNode: NimNode
+  dump output.lisprepr
+  if output.kind == nnkStmtList and output[0][0].repr == "code":
+    outputNode = output[0][1]
+  else:
+    outputNode = compileNode(output, replaced, true)
   let code = outputNode
   let outputCall = nnkLambda.newTree(
     newEmptyNode(),
@@ -1050,12 +1070,11 @@ rewrite do (x: String, y: String):
 do -> String:
   x & y
 
-# TODO
-# rewrite do (x: Int, y: Method):
-#   x.times(y)
-# do:
-#   interlang:
-#     forrange(args["y"].args[0], 0, args["x"], Node(kind: Block, children: args["y"].code))
+rewrite do (x: Int, y: Method):
+  x.times(y)
+do:
+  code:
+    forrange(args["y"].args[0], 0, args["x"], Node(kind: Block, children: args["y"].code))
 
 var rewriteinputruby = rewriteList
 rewriteList = Rewrite(rules: @[])
@@ -1152,13 +1171,28 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
     analyze(node.children[1], env)
     node.children[0].typ = node.children[1].typ
     if node.children[0].kind == Variable:
-      env[node.children[0].label] = node.children[0].typ
+      if not env.types.hasKey(node.children[0].label):
+        node.declaration = Var
+        env[node.children[0].label] = node.children[0].typ
   of String:
     node.typ = StringType
+  of Symbol:
+    node.typ = SymbolType
   of PyInt, PyFloat, PyChar, PyHugeInt, PyAssign, PyFunctionDef, PyClassDef, Char, Float:
     discard
   of New:
     node.typ = Type(kind: T.Simple, label: node.children[0].label)
+  of Sequence:
+    for child in node.children:
+      analyze(child, env)
+    if node.children.len > 0:
+      node.typ = sequenceType(node.children[0].typ)
+  of Table:
+    for child in node.children:
+      analyze(child[0], env)
+      analyze(child[1], env)
+    if node.children.len > 0:
+      node.typ = tableType(node.children[0][0].typ, node.children[0][1].typ)
   of While:
     analyze(node.children[0], env)
     if node.children[0].typ == IntType:

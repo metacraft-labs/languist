@@ -28,6 +28,7 @@ def trace_calls(data)
 end
 
 t = TracePoint.new(:call, :c_call, :b_call) do |tp|
+  p tp
   if tp.path != "tracing.rb" && tp.defined_class != TracePoint && tp.defined_class != Kernel && tp.method_id != :disable && tp.method_id != :inherited && tp.defined_class != Class && tp.method_id != :method_added
     if !$inter_traces.key?(tp.path)
       $inter_traces[tp.path] = generate_ast(tp.path)
@@ -77,6 +78,8 @@ class Type
   attr_reader :kind, :args, :return_type, :label
 end
 
+TABLE_TYPE = {kind: :Generic, label: "Table", genericArgs: ["K", "V"]}
+
 def load_type(arg)
   if arg.class.nil?
     return {kind: :Simple, label: "Void"}
@@ -95,6 +98,20 @@ def load_type(arg)
     {kind: :Simple, label: "String"}
   elsif klass == TrueClass || klass == FalseClass
     {kind: :Simple, label: "Bool"}
+  elsif klass == Hash
+    if arg.length == 0
+      key = {kind: :Simple, label: "Void"}
+      value = key
+    else
+      arg.each do |k, v|
+        key = load_type(k)
+        value = load_type(v)
+        break
+      end
+    end
+    {kind: Compound, args: [key, value], original: TABLE_TYPE}
+  elsif klass == Symbol
+    {kind: :Simple, label: "Symbol"}
   else
     {kind: :Simple, label: klass.name}
   end
@@ -188,7 +205,7 @@ INTER_VARIABLE = 3
 
 PATTERN_STDLIB = {puts: -> a { {kind: INTER_CALL, children: [{kind: INTER_VARIABLE, label: "echo"}] + a , typ: {kind: :Nil} } } }
 
-KINDS = {lvasgn: :Assign}
+KINDS = {lvasgn: :Assign, array: :Sequence, hash: :Table}
 
 class InterTranslator
   def initialize(ast)
@@ -248,6 +265,9 @@ class InterTranslator
         if value[:children][0][:kind] == :RubyConst && value[:children][1][:kind] == :Variable && value[:children][1][:label] == :new
           value = {kind: :New, children: [{kind: :Variable, label: value[:children][0][:label]}] + value[:children][2 .. -1]}          
         end
+        value[:children][1][:kind] = :Variable
+        value[:children][1][:label] = value[:children][1][:text]
+        value[:children][1].delete :text
         begin
           if !@inter_ast[:lines].key?(node.loc.line)
             @inter_ast[:lines][node.loc.line] = []
@@ -265,7 +285,7 @@ class InterTranslator
     elsif node.class == String
       {kind: :String, text: node, typ: nil}
     elsif node.class == Symbol
-      {kind: :Variable, label: node, typ: nil}
+      {kind: :Symbol, text: node, typ: nil}
     elsif node.nil?
       {kind: :Nil, typ: nil}
     end
@@ -283,6 +303,10 @@ class InterTranslator
     {kind: :String, text: node.children[0]}
   end
 
+  def process_sym(node)
+    {kind: :Symbol, text: node.children[0]}
+  end  
+  
   def process_ivar(node)
     {kind: :Attribute, children: [{kind: :Self}, {kind: :String, text: node.children[0][1 .. -1]}]}
   end
@@ -386,11 +410,6 @@ def generate_ast(path)
   InterTranslator.new(ast).process
 end
 
-# def generate_inter_traces(traces, methods, ast)
-#   inter_ast = {imports: [], main: [], classes: []}
-#   InterProcessor.new(traces, methods, inter_ast).process(ast)
-#   inter_ast
-# end
 
 def generate_path(path, methods, traces, inter_traces)
   input = File.read(path)
@@ -398,7 +417,8 @@ def generate_path(path, methods, traces, inter_traces)
   inter_traces[path] = generate_inter_traces(traces, methods, ast)
 end
 
-OPERATORS = Set.new [:+, :-, :*, :/]
+OPERATORS = Set.new [:+, :-, :*, :/, :==]
+NORMAL = Set.new [:RubyIf, :RubyPair]
 
 def compile_child child
   if child[:kind] == :RubySend
@@ -429,6 +449,9 @@ def compile_child child
   elsif child.key?(:children)
     res = child
     res[:children] = child[:children].map { |it| compile_child it }
+    if NORMAL.include?(res[:kind])
+      res[:kind] = res[:kind].to_s[4 .. -1].to_sym
+    end
     res
   elsif child.key?(:code)
     res = child
