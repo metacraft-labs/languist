@@ -260,6 +260,33 @@ macro forrange*(label: untyped, startA: untyped, finish: untyped, code: untyped)
         `code`],
       isFinished: true)
 
+macro forin*(labels: untyped, enumerable: untyped, code: untyped): untyped =
+  var labelSequence = nnkPrefix.newTree(
+    ident("@"),
+    nnkBracket.newTree())
+  labelSequence[1].add(labels)
+  result = quote:
+    Node(
+      kind: ForIn,
+      children: `labelSequence`.concat(@[
+        `enumerable`,
+        `code`]),
+      isFinished: true)
+
+macro forin*(labels: untyped, labels2: untyped, enumerable: untyped, code: untyped): untyped =
+  var labelSequence = nnkPrefix.newTree(
+    ident("@"),
+    nnkBracket.newTree())
+  labelSequence[1].add(labels)
+  labelSequence[1].add(labels2)
+  result = quote:
+    Node(
+      kind: ForIn,
+      children: `labelSequence`.concat(@[
+        `enumerable`,
+        `code`]),
+      isFinished: true)
+
 macro subscript*(sequenceA: untyped, indexA: untyped): untyped =
   var (sequence, index) = (sequenceA, indexA)
   (sequence, index) = (sequence.expandLiteral(), index.expandLiteral())

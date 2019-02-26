@@ -436,21 +436,17 @@ proc generateNameConstant(generator: var Generator, node: Node): PNode =
   else:
     result = nilNode
 
-proc generateFor(generator: var Generator, node: Node): PNode =
-  var code = nkStmtList.newTree()
-  for child in node[2]:
-    code.add(emitNode(child))
+proc generateForIn(generator: var Generator, node: Node): PNode =
   if node[0].kind != PyTuple:
-    result = nkForStmt.newTree(
-      emitNode(node[0]),
-      emitNode(node[1]),
-      code)
+    result = nkForStmt.newTree()
+    for child in node.children:
+      result.add(emitNode(child))
   else:
     result = nkForStmt.newTree(
       emitNode(node[0][0]),
       emitNode(node[0][1]),
       emitNode(node[1]),
-      code)
+      emitNode(node[2]))
 
 proc generateForRange(generator: var Generator, node: Node): PNode =
   var code = nkStmtList.newTree()
@@ -603,8 +599,8 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateConstr(node)
   of PyNameConstant:
     result = generator.generateNameConstant(node)
-  of PyFor:
-    result = generator.generateFor(node)
+  of ForIn:
+    result = generator.generateForIn(node)
   of ForRange:
     result = generator.generateForRange(node)
   of Block:

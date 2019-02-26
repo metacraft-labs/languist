@@ -11,12 +11,12 @@ $call_lines = []
 $current_block = ""
 
 def trace_calls(data)
-  new_trace = [data.path, data.lineno, data.defined_class, data.method_id, data.binding.local_variables.map { |a| [a, data.binding.local_variable_get(a).class]}, :input, nil]
   $call_lines.push(data.lineno)
   if $inter_traces[data.path][:method_lines].key?(data.lineno)
     if $inter_traces[data.path][:method_lines][data.lineno][:kind] == :NodeMethod && data.event != :b_call ||
        $inter_traces[data.path][:method_lines][data.lineno][:kind] == :Block && data.event == :b_call
       $inter_traces[data.path][:method_lines][data.lineno][:args].each do |arg|
+        p arg
         if arg[:label] == :self
           arg[:typ] = load_type(data.binding.receiver)
         else
@@ -28,8 +28,8 @@ def trace_calls(data)
 end
 
 t = TracePoint.new(:call, :c_call, :b_call) do |tp|
-  p tp
-  if tp.path != "tracing.rb" && tp.defined_class != TracePoint && tp.defined_class != Kernel && tp.method_id != :disable && tp.method_id != :inherited && tp.defined_class != Class && tp.method_id != :method_added
+  if tp.path != "tracing.rb" && tp.defined_class != TracePoint && tp.defined_class != Kernel && tp.method_id != :disable && tp.method_id != :enable && tp.method_id != :inherited && tp.defined_class != Class && tp.method_id != :method_added
+    p tp
     if !$inter_traces.key?(tp.path)
       $inter_traces[tp.path] = generate_ast(tp.path)
     end
@@ -38,7 +38,7 @@ t = TracePoint.new(:call, :c_call, :b_call) do |tp|
 end
 
 t2 = TracePoint.new(:return, :c_return, :b_return) do |tp|
-  if tp.method_id != :new && tp.method_id != :initialize && caller.length > 1 && tp.path != "tracing.rb" && !tp.path.include?("did_you_mean")
+  if tp.method_id != :new && tp.method_id != :initialize && tp.method_id != :enable && tp.method_id != :disable && caller.length > 1 && tp.path != "tracing.rb" && !tp.path.include?("did_you_mean")
     path, line, *_ = caller[1].split(':')
     line = line.to_i
     path = tp.path
@@ -84,8 +84,13 @@ def load_type(arg)
   if arg.class.nil?
     return {kind: :Simple, label: "Void"}
   end
+  puts arg
+  
+  #t.disable
+  #t2.disable
   klass = arg.class
-
+  puts arg
+  puts klass
   variables = arg.instance_variables.map do |a|
     load_type(arg.instance_variable_get(a)).tap { |b| b[:fieldLabel] = a.to_s[1 .. -1] }
   end
@@ -109,7 +114,7 @@ def load_type(arg)
         break
       end
     end
-    {kind: Compound, args: [key, value], original: TABLE_TYPE}
+    {kind: :Compound, args: [key, value], original: TABLE_TYPE}
   elsif klass == Symbol
     {kind: :Simple, label: "Symbol"}
   else
@@ -131,6 +136,8 @@ def load_type(arg)
     end
   end
   
+  #t.enable
+  #t2.enable
   res
 end
 
@@ -205,7 +212,7 @@ INTER_VARIABLE = 3
 
 PATTERN_STDLIB = {puts: -> a { {kind: INTER_CALL, children: [{kind: INTER_VARIABLE, label: "echo"}] + a , typ: {kind: :Nil} } } }
 
-KINDS = {lvasgn: :Assign, array: :Sequence, hash: :Table}
+KINDS = {lvasgn: :Assign, array: :Sequence, hash: :Table, begin: :Code}
 
 class InterTranslator
   def initialize(ast)
@@ -496,7 +503,7 @@ end
 
 t.enable
 t2.enable
-t3.enable
+#t3.enable
 
 begin
   Kernel.load ARGV.first
@@ -508,7 +515,7 @@ end
 at_exit do
   t.disable
   t2.disable
-  t3.disable
+  #t3.disable
   generate
 end
 

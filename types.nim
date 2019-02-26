@@ -103,7 +103,7 @@ type
     hasYield*:    bool
 
   NodeKind* = enum
-    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, Table, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, Slice,
+    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, Table, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, Slice, ForIn,
     
     PyAST, PyAdd, PyAnd, PyAnnAssign, PyAssert, PyAssign, PyAsyncFor, PyAsyncFunctionDef, PyAsyncWith, PyAttribute,
     PyAugAssign, PyAugLoad, PyAugStore, PyAwait, PyBinOp, PyBitAnd, PyBitOr, PyBitXor, PyBoolOp, PyBreak, PyBytes,
@@ -169,7 +169,7 @@ type
     label*: string
     node*: Node
 
-  Module* = object
+  Module* = ref object
     name*: string
     imports*: seq[Node] # probably Import and Assign
     types*: seq[Node] # probably ClassDef
@@ -418,27 +418,25 @@ proc dump*(node: Node, depth: int, typ: bool = false): string =
   if node.isNil:
     return "nil"
   let offset = repeat("  ", depth)
-  var left = ""
   let kind = $node.kind
   var typDump = if typ: "#$1" % dump(node.typ, 0) else: ""
   if typDump == "#nil":
     typDump = ""
-  if left == "":
-    left = case node.kind:
-      of Int, PyInt:
-        "Int($1)$2" % [$node.i, typDump]
-      of Variable, Operator:
-        $node.kind & "($1)$2" % [node.label, typDump]
-      of String, Symbol:
-        $node.kind & "($1)$2" % [node.text, typDump]
-      of NodeMethod, Block:
-        if node.typ.isNil:
-          echo "BLOCK NIL"
-        "Method($1)\n$2\n$3" % [node.label, node.args.mapIt(dump(it, 0, typ)).join(" "), node.code.mapIt(dump(it, depth + 1, typ)).join("\n")]
-      of Class:
-        "Class($1)\n$2" % [node.label, node.methods.mapIt(dump(it.node, depth + 1, typ)).join(" ")]
-      else:
-        "$1$2:\n$3" % [kind, typDump, node.children.mapIt(dump(it, depth + 1, typ)).join("\n")]
+  var left = case node.kind:
+    of Int, PyInt:
+      "Int($1)$2" % [$node.i, typDump]
+    of Variable, Operator:
+      $node.kind & "($1)$2" % [node.label, typDump]
+    of String, Symbol:
+      $node.kind & "($1)$2" % [node.text, typDump]
+    of NodeMethod, Block:
+      if node.typ.isNil:
+        echo "BLOCK NIL"
+      $node.kind & "($1)\n$2\n$3" % [node.label, node.args.mapIt(dump(it, 0, typ)).join(" "), node.code.mapIt(dump(it, depth + 1, typ)).join("\n")]
+    of Class:
+      "Class($1)\n$2" % [node.label, node.methods.mapIt(dump(it.node, depth + 1, typ)).join(" ")]
+    else:
+      "$1$2:\n$3" % [kind, typDump, node.children.mapIt(dump(it, depth + 1, typ)).join("\n")]
   result = "$1$2" % [offset, left]
 
 proc dump*(m: Module, depth: int, typ: bool = false): string =
@@ -602,8 +600,8 @@ proc loadType*(typ: JsonNode): Type =
   of T.Method:
     result.args = @[]
     # result.variables = @[]
-    for v in typ{"args"}:
-      var variable = loadType(v)
+    for arg in typ{"args"}:
+      var variable = loadType(arg)
       result.args.add(variable)
     # for v in typ{"variables"}:
     #   var variable = PyVariable(name: ($v{"name"})[1..^2])
@@ -613,7 +611,7 @@ proc loadType*(typ: JsonNode): Type =
       result.returnType = VoidType
     else:
       result.returnType = loadType(typ{"returnType"})
-  of Object:
+  of T.Object:
     result.fields = initTable[string, Type]()
     if typ{"base"} == nil:
       result.base = nil
@@ -627,6 +625,17 @@ proc loadType*(typ: JsonNode): Type =
     result.isRef = true
   of T.Simple:
     result.label = typ{"label"}.getStr()
+  of T.Compound:
+    result.args = @[]
+    for arg in typ{"args"}:
+      var variable = loadType(arg)
+      result.args.add(variable)
+    result.original = loadType(typ{"original"})
+  of T.Generic:
+    result.label = typ{"label"}.getStr()
+    result.genericArgs = @[]
+    for arg in typ{"genericArgs"}:
+      result.genericArgs.add(arg.getStr())
   else:
     discard
   if result.kind != T.Simple:
@@ -737,6 +746,7 @@ type
     args*:    seq[seq[int]]
     replaced*: seq[tuple[label: string, typ: Type]]
     isGeneric*: bool
+    dependencies*: seq[string]
 
   Rewrite* = object
     rules*: seq[RewriteRule]
@@ -808,7 +818,9 @@ proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
     if rule.input.find(node, rule.replaced):
       result.add(rule)
 
-proc replace(rule: RewriteRule, node: Node, blockNode: Node): Node =
+include ast_dsl
+
+proc replace(rule: RewriteRule, node: Node, blockNode: Node, m: Module): Node =
   var args = initTable[string, Node]()
   # dump node
   for i in 0 ..< rule.replaced.len:
@@ -820,14 +832,20 @@ proc replace(rule: RewriteRule, node: Node, blockNode: Node): Node =
       subNode = subNode.children[rule.args[i][k]]
       k += 1
     args[r] = subNode
-  dump args
   result = rule.output(node, args, blockNode, rule)
-  dump rule.args
+  for dependency in rule.dependencies:
+    var existing = false
+    for im in m.imports:
+      if im.kind == Import and im.children[0].kind == Variable and im.children[0].label == dependency:
+        existing = true
+        break
+    if not existing:
+      m.imports.add(Node(kind: Import, children: @[variable(dependency)]))
   result.isFinished = true
 
-proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node): Node
+proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): Node
 
-proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node): Node =
+proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): Node =
   var b: seq[RewriteRule] = @[]
   if not node.isFinished:
     b = rewrite.find(node)
@@ -837,25 +855,25 @@ proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node): Node =
     for a in b:
       if c.isGeneric and not a.isGeneric:
         c = a
-    newNode = c.replace(node, blockNode)
-  return rewriteChildren(newNode, rewrite, blockNode)
+    newNode = c.replace(node, blockNode, m)
+  return rewriteChildren(newNode, rewrite, blockNode, m)
 
 
-proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node): Node =
+proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): Node =
   var newNode = deepCopy(node)
   if node.kind == Class:
     for i, met in node.methods:
-      newNode.methods[i].node = rewriteNode(met.node, rewrite, blockNode)
+      newNode.methods[i].node = rewriteNode(met.node, rewrite, blockNode, m)
 
   elif node.kind == NodeMethod or node.kind == Block:
     for i, child in node.code:
-      newNode.code[i] = rewriteNode(child, rewrite, blockNode)
+      newNode.code[i] = rewriteNode(child, rewrite, blockNode, m)
 
     for i, child in node.children:
-      newNode.children[i] = rewriteNode(child, rewrite, blockNode)
+      newNode.children[i] = rewriteNode(child, rewrite, blockNode, m)
   else:
     for i, child in node.children:
-      newNode.children[i] = rewriteNode(child, rewrite, blockNode)
+      newNode.children[i] = rewriteNode(child, rewrite, blockNode, m)
   return newNode
 
 var inRuby {.compileTime.} = true
@@ -926,7 +944,6 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)], isOutputArg: b
       result.add(son)
     return result
 
-include ast_dsl
 
 proc args(node: NimNode, arg: string, a: var seq[int]): bool =
   case node.kind:
@@ -1003,8 +1020,12 @@ macro rewrite*(input: untyped, output: untyped): untyped =
   let help = ident("help")
   var outputNode: NimNode
   dump output.lisprepr
+  var dependencies: NimNode = quote:
+    @[]
   if output.kind == nnkStmtList and output[0][0].repr == "code":
     outputNode = output[0][1]
+    if output.len > 1:
+      dependencies = output[1][1]
   else:
     outputNode = compileNode(output, replaced, true)
   let code = outputNode
@@ -1048,6 +1069,9 @@ macro rewrite*(input: untyped, output: untyped): untyped =
   var n = quote:
     `help`.output = `outputCall`
   result.add(n)
+  n = quote:
+    `help`.dependencies = `dependencies`
+  result.add(n)
   result = quote:
     block:
       `result`
@@ -1074,7 +1098,20 @@ rewrite do (x: Int, y: Method):
   x.times(y)
 do:
   code:
-    forrange(args["y"].args[0], 0, args["x"], Node(kind: Block, children: args["y"].code))
+    forrange(args["y"].args[0], 0, args["x"], Node(kind: Code, children: args["y"].code))
+
+# FAITH
+rewrite do (x: Table, y: Method):
+  x.each(y)
+do:
+  code:
+    if args["y"].args.len == 1:
+      forin(args["y"].args[0], args["x"], Node(kind: Block, children: args["y"].code))
+    else:
+      forin(args["y"].args[0], args["y"].args[1], args["x"], Node(kind: Code, children: args["y"].code)) 
+      # TODO matching more exact , but it doesnt really matter for now
+  
+  dependencies: @["tables"]
 
 var rewriteinputruby = rewriteList
 rewriteList = Rewrite(rules: @[])
@@ -1230,22 +1267,22 @@ for child in input.classes:
 
 input.analyze(env)
 
-proc rewriteProgram(node: Node, rewrite: Rewrite): Node =
+proc rewriteProgram(node: Node, rewrite: Rewrite, m: Module): Node =
   case node.kind:
   of Class:
     result = node.deepCopy()
     for i, met in node.methods:
       var newCode: seq[Node] = @[]
       for element in met.node.code:
-        newCode.add(rewriteNode(element, rewrite, met.node))
+        newCode.add(rewriteNode(element, rewrite, met.node, m))
       result.methods[i].node.code = newCode
   else:
     discard
 
 proc rewriteProgram(m: Module, rewrite: Rewrite): Module =
   result = m
-  result.classes = m.classes.mapIt(rewriteProgram(it, rewrite))
-  result.main = m.main.mapIt(rewriteNode(it, rewrite, nil))
+  result.classes = m.classes.mapIt(rewriteProgram(it, rewrite, m))
+  result.main = m.main.mapIt(rewriteNode(it, rewrite, nil, m))
 
 echo "after analyze ", dump(input, 0, true)
 input = rewriteProgram(input, rewriteinputruby)
