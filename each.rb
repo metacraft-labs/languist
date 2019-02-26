@@ -2,7 +2,7 @@
 #   puts element
 # end
 
-puts({"example" => 0})
+puts([4, 0])
 # {example: 0}.each do |key, value|
 #   puts key
 #   puts value

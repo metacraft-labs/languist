@@ -462,7 +462,7 @@ proc generateForRange(generator: var Generator, node: Node): PNode =
     rangeCode,
     code)
 
-proc generateList(generator: var Generator, node: Node): PNode =
+proc generateSequence(generator: var Generator, node: Node): PNode =
   result = nkPrefix.newTree(generateIdent("@"), nkBracket.newTree())
   for child in node:
     result[1].add(emitNode(child))
@@ -480,8 +480,7 @@ proc generateWhile(generator: var Generator, node: Node): PNode =
   result = nkWhileStmt.newTree(emitNode(node[0]), emitNode(node[1]))
 
 proc generateUnaryOp(generator: var Generator, node: Node): PNode =
-  echo node
-  result = nkPrefix.newTree(generator.generateOp(node[0]), emitNode(node[1]))
+  result = nkPrefix.newTree(generateIdent(node[0].label), emitNode(node[1]))
 
 proc generateExprColonExpr(generator: var Generator, node: Node): PNode =
   result = nkExprColonExpr.newtree(emitNode(node[0]), emitNode(node[1]))
@@ -491,7 +490,7 @@ proc generateTry(generator: var Generator, node: Node): PNode =
   for child in node[1]:
     result.add(emitNode(child))
 
-proc generateSubscript(generator: var Generator, node: Node): PNode =
+proc generateIndex(generator: var Generator, node: Node): PNode =
   result = nkBracketExpr.newTree(emitNode(node[0]), emitNode(node[1]))
 
 proc generateExceptHandler(generator: var Generator, node: Node): PNode =
@@ -536,9 +535,6 @@ proc generateImport(generator: var Generator, node: Node): PNode =
   for child in node:
     result.add(emitNode(child))
 
-proc generateIndex(generator: var Generator, node: Node): PNode =
-  result = emitNode(node[0])
-
 proc generateAugAssign(generator: var Generator, node: Node): PNode =
   result = nkInfix.newTree(generateIdent("+="), emitNode(node[0]), emitNode(node[1]))
 
@@ -546,9 +542,9 @@ proc generateMath(generator: var Generator, op: string, node: Node): PNode =
   result = nkInfix.newTree(generateIdent(op), emitNode(node[0]), emitNode(node[1]))
 
 proc generateSlice(generator: var Generator, node: Node): PNode =
-  var start = if node[0].kind != PyNone: emitNode(node[0]) else: newIntNode(nkIntLit, 0)
-  var finish = if node[0].kind != PyNone: emitNode(node[1]) else: nkPrefix.newTree(generateIdent("^"), newIntNode(nkIntLit, 1))
-  var op = if node[0].kind != PyNone: "..<" else: ".."
+  var start = if node[0].kind != Nil: emitNode(node[0]) else: newIntNode(nkIntLit, 0)
+  var finish = if node[0].kind != Nil: emitNode(node[1]) else: nkPrefix.newTree(generateIdent("^"), newIntNode(nkIntLit, 1))
+  var op = if node[0].kind != Nil: "..<" else: ".."
   result = nkInfix.newTree(generateIdent(op), start, finish)
 
 proc generateCommentedOut(generator: var Generator, node: Node): PNode =
@@ -613,9 +609,9 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateForRange(node)
   of Block:
     result = generator.generateMethod(node)
-  of PyList:
+  of Sequence:
     if homogeneous(node):
-      result = generator.generateList(node)
+      result = generator.generateSequence(node)
     else:
       result = generator.generateTuple(node)
   of NimRangeLess:
@@ -624,7 +620,7 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateTable(node)
   of While:
     result = generator.generateWhile(node)
-  of PyUnaryOp:
+  of UnaryOp:
     result = generator.generateUnaryOp(node)
   of NimExprColonExpr:
     result = generator.generateExprColonExpr(node)
@@ -632,8 +628,8 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateTuple(node)
   of PyTry:
     result = generator.generateTry(node)
-  of PySubscript:
-    result = generator.generateSubscript(node)
+  of Index:
+    result = generator.generateIndex(node)
   of PyExceptHandler:
     result = generator.generateExceptHandler(node)
   of PyRaise:
@@ -642,9 +638,9 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateInfix(node)
   of NimAccQuoted:
     result = generator.generateAccQuoted(node)
-  of PyYield:
+  of Yield:
     result = generator.generateYield(node)
-  of PyBreak:
+  of Break:
     result = generator.generateBreak(node)
   of PyWith:
     result = generator.generateWith(node)
@@ -656,23 +652,23 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generatePrefix(node)
   of Import:
     result = generator.generateImport(node)
-  of PyIndex:
-    result = generator.generateIndex(node)
+#  of PyIndex:
+ #   result = generator.generateIndex(node)
   of PyAugAssign:
     result = generator.generateAugAssign(node)
-  of PyAdd:
-    result = generator.generateOp(node)
-  of PySub:
-    result = generator.generateOp(node)
-  of PyMult:
-    result = generator.generateOp(node)
-  of PyFloorDiv:
-    result = generator.generateOp(node)
-  of PySlice:
+  # of PyAdd:
+  #   result = generator.generateOp(node)
+  # of PySub:
+  #   result = generator.generateOp(node)
+  # of PyMult:
+  #   result = generator.generateOp(node)
+  # of PyFloorDiv:
+  #   result = generator.generateOp(node)
+  of Slice:
     result = generator.generateSlice(node)
   of NimCommentedOut:
     result = generator.generateCommentedOut(node)
-  of PyContinue:
+  of Continue:
     result = generator.generateContinue(node)
   of Class:
     result = generator.generateClass(node)
