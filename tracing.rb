@@ -326,6 +326,10 @@ class InterTranslator
     {kind: :Assign, children: [{kind: :Attribute, children: [{kind: :Self}, {kind: :String, text: node.children[0][1 .. -1]}]}, process_node(node.children[1])]}
   end
 
+  def process_lvasgn(node)
+    {kind: :Assign, children: [{kind: :Variable, label: node.children[0]}, process_node(node.children[1])]}
+  end
+
   def process_nil(node)
     {kind: :Nil}
   end

@@ -1013,6 +1013,19 @@ proc generateInput(input: NimNode): (NimNode, seq[(string, NimNode)]) =
   res.add(n)
   result = (res, replaced2)
 
+proc rewriteLabel(code: Node, label: string, newLabel: string) =
+  if code.kind == Variable:
+    if code.label == label:
+      code.label = newLabel
+  else:
+    for child in code.children:
+      rewriteLabel(child, label, newLabel)
+
+proc rewriteIt(code: Node): Node =
+  var element = code.args[0].label
+  for child in code.code:
+    rewriteLabel(child, element, "it")
+  result = Node(kind: Code, children: code.code)
 
 macro rewrite*(input: untyped, output: untyped): untyped =
   let (inputNode, replaced) = generateInput(input)
@@ -1136,12 +1149,12 @@ do -> Void:
   echo(x)
 
 # TODO
-#rewrite do (x: Sequence, y: Method):
-#  x.map(y)
-#do:
-  #code:
-  #  send(args["x"], "mapIt", rewriteIt(args["y"]))
- # dependencies: @["sequtils"]
+rewrite do (x: Sequence, y: Method):
+  x.map(y)
+do:
+  code:
+    send(args["x"], "mapIt", rewriteIt(args["y"]))
+  dependencies: @["sequtils"]
 
 var rewritenim = rewriteList
 
