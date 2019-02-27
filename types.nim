@@ -1,3 +1,4 @@
+
 import sequtils, strutils, strformat, tables, sugar, hashes, gen_kind, sets, json, macros, terminal, helpers, os
 import
   compiler/[ast, astalgo, idents, msgs, renderer, lineinfos]
@@ -1284,15 +1285,19 @@ proc analyze(m: Module, env: Env) =
   for child in m.main:
     analyze(child, env)
 
+proc analyzeCode(traceDB: TraceDB, env: Env) =
+  for input in traceDB.modules:
+    dump dump(input, 0, true)
+    for child in input.classes:
+      env[child.label] = child.typ
+  for input in traceDB.modules:
+    input.analyze(env)
+
+
 var traceDB = load(if paramCount() == 0: "lang_traces.json" else: paramStr(1))
-var input = traceDB.modules[0]
-var env = Env(parent: nil, types: initTable[string, Type]())
-dump dump(input, 0, true)
 
-for child in input.classes:
-  env[child.label] = child.typ
 
-input.analyze(env)
+
 
 proc rewriteProgram(node: Node, rewrite: Rewrite, m: Module): Node =
   case node.kind:
@@ -1311,15 +1316,31 @@ proc rewriteProgram(m: Module, rewrite: Rewrite): Module =
   result.classes = m.classes.mapIt(rewriteProgram(it, rewrite, m))
   result.main = m.main.mapIt(rewriteNode(it, rewrite, nil, m))
 
-echo "after analyze ", dump(input, 0, true)
-input = rewriteProgram(input, rewriteinputruby)
-# two directions
-echo "after ruby ", dump(input, 0, true)
-input = rewriteProgram(input, rewritenim)
-echo "after rewrite ", dump(input, 0, true)
+proc rewriteCode(traceDB: TraceDB, rewrite: Rewrite) =
+  for i, input in traceDB.modules:
+    var newInput = rewriteProgram(input, rewrite)
+    traceDB.modules[i] = newInput
+
 
 include generator
 
-var generator = Generator(indent: 2, v: V019, module: Module(), identifierCollisions: initSet[string]())
-var output = generator.generate(input)
-echo output
+proc generateCode(traceDB: TraceDB) =
+  for i, input in traceDB.modules:
+    let path = traceDB.paths[i]
+    let newPath = path.changeFileExt("nim")
+    var generator = Generator(indent: 2, v: V019, module: Module(), identifierCollisions: initSet[string]())
+    var output = generator.generate(input)
+    writeFile(newPath, output)
+    echo &"write {newPath}"
+
+
+proc compile(traceDB: TraceDB) =
+  var env = Env(parent: nil, types: initTable[string, Type]())
+  analyzeCode(traceDB, env)
+
+  rewriteCode(traceDB, rewriteinputruby)
+  rewriteCode(traceDB, rewritenim)
+
+  traceDB.generateCode 
+
+compile(traceDB)
