@@ -27,8 +27,13 @@ def trace_calls(data)
   end
 end
 
-t = TracePoint.new(:call, :c_call, :b_call) do |tp|
-  if tp.path != "tracing.rb" && tp.defined_class != TracePoint && tp.defined_class != Kernel && tp.method_id != :disable && tp.method_id != :enable && tp.method_id != :inherited && tp.defined_class != Class && tp.method_id != :method_added
+$t = TracePoint.new(:call, :c_call, :b_call) do |tp|
+  if tp.path.include?("rubocop") && tp.path.include?("class_vars")
+    p tp    
+  else
+    next
+  end
+  if ![:new, :initialize, :enable, :disable].include?(tp.method_id) #tp.path != "tracing.rb" && 
     p tp
     if !$inter_traces.key?(tp.path)
       $inter_traces[tp.path] = generate_ast(tp.path)
@@ -37,8 +42,20 @@ t = TracePoint.new(:call, :c_call, :b_call) do |tp|
   end
 end
 
-t2 = TracePoint.new(:return, :c_return, :b_return) do |tp|
-  if tp.method_id != :new && tp.method_id != :initialize && tp.method_id != :enable && tp.method_id != :disable && caller.length > 1 && tp.path != "tracing.rb" && !tp.path.include?("did_you_mean")
+#tp.defined_class != TracePoint && tp.defined_class != Kernel && tp.method_id != :disable && tp.method_id != :enable && tp.method_id != :inherited && tp.defined_class != Class && tp.method_id != :method_added &&
+    #!tp.path.include?("core_ext")
+    
+#tp.method_id != :new && tp.method_id != :initialize && tp.method_id != :enable && tp.method_id != :disable && caller.length > 1 && 
+     #tp.path != "tracing.rb" && !tp.path.include?("did_you_mean") &&
+     #!tp.path.include?("core_ext")
+    
+$t2 = TracePoint.new(:return, :c_return, :b_return) do |tp|
+  if tp.path.include?("rubocop") && tp.path.include?("class_vars")
+    p tp    
+  else
+    next
+  end
+  if ![:new, :initialize, :enable, :disable].include?(tp.method_id) 
     path, line, *_ = caller[1].split(':')
     line = line.to_i
     path = tp.path
@@ -79,22 +96,27 @@ class Type
 end
 
 TABLE_TYPE = {kind: :Generic, label: "Table", genericArgs: ["K", "V"]}
+$processing = {}
+# object types
 
 def load_type(arg)
   if arg.class.nil?
     return {kind: :Simple, label: "Void"}
   end
-  puts arg
   
-  #t.disable
-  #t2.disable
+  $t.disable
+  $t2.disable
+  
   klass = arg.class
-  puts arg
-  puts klass
-  variables = arg.instance_variables.map do |a|
-    load_type(arg.instance_variable_get(a)).tap { |b| b[:fieldLabel] = a.to_s[1 .. -1] }
+  if !$processing.key?(klass.name)
+    $processing[klass.name] = []
+    variables = arg.instance_variables.map do |a|
+      load_type(arg.instance_variable_get(a)).tap { |b| b[:fieldLabel] = a.to_s[1 .. -1] }
+    end
+    $processing[klass.name] = variables
+  else
+    return {kind: :Simple, label: klass.name.to_sym}
   end
-  
   res = if klass == Integer
     {kind: :Simple, label: "Int"}
   elsif klass == NilClass
@@ -130,14 +152,17 @@ def load_type(arg)
   if klass.is_a?(Class) && variables.length > 0
     # ok for now
     if !$inter_types[res[:label].to_sym]
+      label = res[:label].to_sym
       res[:kind] = :Object
       res[:fields] = variables
-      $inter_types[res[:label].to_sym] = res
+      $inter_types[label] = res
+      res = {kind: :Simple, label: label} # Praise the Lord!
     end
+    # far simpler to just move all the classes to %types: easier to process and search
   end
   
-  #t.enable
-  #t2.enable
+  $t.enable
+  $t2.enable 
   res
 end
 
@@ -212,7 +237,7 @@ INTER_VARIABLE = 3
 
 PATTERN_STDLIB = {puts: -> a { {kind: INTER_CALL, children: [{kind: INTER_VARIABLE, label: "echo"}] + a , typ: {kind: :Nil} } } }
 
-KINDS = {lvasgn: :Assign, array: :Sequence, hash: :Table, begin: :Code}
+KINDS = {lvasgn: :Assign, array: :Sequence, hash: :Table, begin: :Code, dstr: :Docstring}
 
 class InterTranslator
   def initialize(ast)
@@ -220,6 +245,8 @@ class InterTranslator
   end
 
   def process
+    $t.disable # TODO same event
+    $t2.disable
     res = {imports: [], main: [], classes: [], lines: {}, method_lines: {}}
     @inter_ast = res
     children = [@ast]
@@ -236,6 +263,8 @@ class InterTranslator
         res[:main].push(process_node it)
       end
     end
+    $t.enable
+    $t2.enable
     res
   end
 
@@ -252,20 +281,27 @@ class InterTranslator
       if respond_to?(:"process_#{node.type}")
         return send :"process_#{node.type}", node
       end
+      begin
+        line = node.loc.line
+        column = node.loc.column
+      rescue
+        line = -1
+        column = -1
+      end
       if node.type == :def
         value = {kind: :NodeMethod, label: {typ: :Variable, label: node.children[0]}, args: [], code: [], typ: nil, return_type: nil}
         value[:args] = [{kind: :Variable, label: :self, typ: nil}] + node.children[1].children.map { |it| process_node it }
         value[:code] = node.children[2 .. -1].map { |it| process_node it }
-        @inter_ast[:method_lines][node.loc.line] = value
-        return value.tap { |t| t[:line] = node.loc.line; t[:column] = node.loc.column }
+        @inter_ast[:method_lines][line] = value
+        return value.tap { |t| t[:line] = line; t[:column] = column }
       elsif node.type == :block
         value = {kind: :Block, label: {typ: :Variable, label: ""}, args: [], code: [], typ: nil, return_type: nil}
         value[:args] = node.children[1].children.map { |it| process_node it }
         value[:code] = node.children[2 .. -1].map { |it| process_node it }
-        @inter_ast[:method_lines][node.loc.line] = value
+        @inter_ast[:method_lines][line] = value
         child = process_node node.children[0]
         child[:children].push(value)
-        return child.tap { |t| t[:line] = node.loc.line; t[:column] = node.loc.column }
+        return child.tap { |t| t[:line] = line; t[:column] = column }
       end
       value = {kind: get_kind(node.type), children: node.children.map { |it| process_node it }, typ: nil}
       if node.type == :send
@@ -275,18 +311,14 @@ class InterTranslator
         value[:children][1][:kind] = :Variable
         value[:children][1][:label] = value[:children][1][:text]
         value[:children][1].delete :text
-        begin
-          if !@inter_ast[:lines].key?(node.loc.line)
-            @inter_ast[:lines][node.loc.line] = []
-          end
-          @inter_ast[:lines][node.loc.line].push(value)
-          value
-        rescue
-          {kind: :Nil}
+        if !@inter_ast[:lines].key?(line)
+          @inter_ast[:lines][line] = []
         end
+        @inter_ast[:lines][line].push(value)
+        value
       else
         value
-      end.tap { |t| if !node.nil?; t[:line] = node.loc.line; t[:column] = node.loc.column; end }
+      end.tap { |t| if !node.nil?; t[:line] = line; t[:column] = column; end }
     elsif node.class == Integer
       {kind: :Int, i: node, typ: nil}
     elsif node.class == String
@@ -308,6 +340,10 @@ class InterTranslator
 
   def process_str(node)
     {kind: :String, text: node.children[0]}
+  end
+
+  def process_dstr(node)
+    {kind: :Docstring, text: node.children[0]}
   end
 
   def process_sym(node)
@@ -475,13 +511,12 @@ def compile_child child
 end
 
 def compile traces
+  $types_no_definition = $inter_types
   traces.each do |path, file|
     file[:main] = file[:main].map do |child|
       compile_child(child)
     end
 
-    p $inter_types
-    
     file[:classes] = file[:classes].map do |klass|
       mercy = klass[:children][2]
       if mercy[:kind] == :RubyBegin
@@ -489,7 +524,8 @@ def compile traces
       else
         mercy = klass[:children][2 .. -1]
       end
-        
+      
+      $types_no_definition.delete klass[:children][0][:label]
       {kind: :Class,
        label: klass[:children][0][:label],
        methods: mercy.map { |met| {label: met[:label][:label], node: compile_child(met)} },
@@ -497,6 +533,7 @@ def compile traces
        typ: $inter_types[klass[:children][0][:label]]}
     end
   end
+  $inter_traces['%types'] = $types_no_definition
 end
 
 def generate
@@ -505,21 +542,19 @@ def generate
   File.write("lang_traces.json", JSON.pretty_generate($inter_traces))
 end
 
-t.enable
-t2.enable
-#t3.enable
+$t.enable
+$t2.enable
 
-begin
-  Kernel.load ARGV.first
-rescue => e
-  puts e
-  raise e
-end
+# begin
+#   Kernel.load ARGV.first
+# rescue => e
+#   puts e
+#   raise e
+# end
 
 at_exit do
-  t.disable
-  t2.disable
-  #t3.disable
+  $t.disable
+  $t2.disable
   generate
 end
 

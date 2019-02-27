@@ -339,6 +339,13 @@ proc generateCall(generator: var Generator, node: Node): PNode =
     result.kind = nkCommand
 
 
+proc generateCommand(generator: var Generator, node: Node): PNode =
+  result = nkCommand.newTree(emitNode(node[0]))
+  for i, arg in node.children:
+    if i > 0:
+      result.add(emitNode(arg))
+
+
 proc generateReturn(generator: var Generator, node: Node): PNode =
   ensure(Return)
 
@@ -362,8 +369,10 @@ proc generateAttribute(generator: var Generator, node: Node): PNode =
   result = nkDotExpr.newTree(emitNode(node[0]), generateIdent(node[1].text))
 
 proc generateStr(generator: var Generator, node: Node): PNode =
-  # ensure(String)
+  result = nkStrLit.newNode()
+  result.strVal = node.text
 
+proc generateDocstring(generator: var Generator, node: Node): PNode =
   result = nkStrLit.newNode()
   result.strVal = node.text
 
@@ -579,6 +588,8 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateCode(node)
   of Call:
     result = generator.generateCall(node)
+  of Command:
+    result = generator.generateCommand(node)
   of Return:
     result = generator.generateReturn(node)
   of Int:
@@ -591,6 +602,8 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateSend(node)
   of String, Symbol:
     result = generator.generateStr(node)
+  of Docstring: 
+    result = generator.generateDocstring(node)
   of BinOp:
     result = generator.generateBinOp(node)
   of PyCompare:

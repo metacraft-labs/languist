@@ -88,13 +88,13 @@ macro list*(args: varargs[untyped]): untyped =
 macro assign*(target: untyped, value: untyped, declaration: untyped = nil): untyped =
   var v = value
   v = v.expandLiteral()
-  var d = if declaration == nil: nnkDotExpr.newTree(ident("Declaration"), ident("Existing")) else: declaration
+  var dec = if declaration == nil: nnkDotExpr.newTree(ident("Declaration"), ident("Existing")) else: declaration
   result = quote:
     Node(
-      kind: PyAssign,
-      declaration: `d`,
+      kind: Assign,
+      declaration: `dec`,
       children: @[
-        Node(kind: Sequence, children: @[`target`]),
+        `target`,
         `v`],
       isFinished: true)
 
@@ -181,7 +181,13 @@ macro input_call*(f: untyped, args: untyped, typ: untyped = nil): untyped =
   result = quote:
     Node(kind: Call, children: @[`f`].concat(`children`), typ: `t`)
 
-macro call*(f: untyped, args: untyped, typ: untyped = nil): untyped =
+macro call*(f: untyped, typ: untyped): untyped =
+  let t = typ
+  result = quote:
+    Node(kind: Call, children: @[`f`], typ: `t`, isFinished: true)
+
+
+macro call*(f: untyped, args: untyped, typ: untyped): untyped =
   var children = args
   var z = 0
   if children.kind == nnkPrefix:
@@ -191,10 +197,23 @@ macro call*(f: untyped, args: untyped, typ: untyped = nil): untyped =
       z += 1
   if children.kind != nnkPrefix:
     children = nnkPrefix.newTree(ident("@"), nnkBracket.newTree(children))
-  let t = if typ.isNil: newNilLit() else: typ
+  let t = typ
   echo children.repr
   result = quote:
     Node(kind: Call, children: @[`f`].concat(`children`), typ: `t`, isFinished: true)
+
+macro call*(f: untyped, arg: untyped, arg2: untyped, typ: untyped): untyped =
+  var children = arg
+  children = nnkPrefix.newTree(ident("@"), nnkBracket.newTree(children))
+  children[1].add(arg2)
+  let t = typ
+  echo children.repr
+  result = quote:
+    Node(kind: Call, children: @[`f`].concat(`children`), typ: `t`, isFinished: true)
+
+macro command*(op: untyped, arg: untyped, code: untyped, t: untyped): untyped =
+  result = quote:
+    Node(kind: Command, children: @[`op`, `arg`, `code`], typ:  `t`)
 
 template operator*(op: untyped, ignore: untyped = nil): untyped =
   Node(

@@ -104,8 +104,9 @@ type
     hasYield*:    bool
 
   NodeKind* = enum
-    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, Table, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, Slice, ForIn,
+    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, Table, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, Slice, ForIn, Docstring, Command,
     
+    RubyConst,
     PyAST, PyAdd, PyAnd, PyAnnAssign, PyAssert, PyAssign, PyAsyncFor, PyAsyncFunctionDef, PyAsyncWith, PyAttribute,
     PyAugAssign, PyAugLoad, PyAugStore, PyAwait, PyBinOp, PyBitAnd, PyBitOr, PyBitXor, PyBoolOp, PyBreak, PyBytes,
     PyCall, PyClassDef, PyCompare, PyConstant, PyContinue, PyDel, PyDelete, PyDict,
@@ -133,7 +134,7 @@ type
     isFinished*: bool
     isReplace*: bool
     case kind*: NodeKind:
-    of String, Symbol:
+    of String, Symbol, Docstring:
       text*: string
     of Int:
       i*: int
@@ -426,9 +427,9 @@ proc dump*(node: Node, depth: int, typ: bool = false): string =
   var left = case node.kind:
     of Int, PyInt:
       "Int($1)$2" % [$node.i, typDump]
-    of Variable, Operator:
+    of Variable, Operator, RubyConst:
       $node.kind & "($1)$2" % [node.label, typDump]
-    of String, Symbol:
+    of String, Symbol, Docstring:
       $node.kind & "($1)$2" % [node.text, typDump]
     of NodeMethod, Block:
       if node.typ.isNil:
@@ -455,6 +456,7 @@ var MethodType = Type(kind: T.Method)
 var SequenceType     = Type(kind: T.Generic, label: "Sequence", genericArgs: @["T"])
 var TableType     = Type(kind: T.Generic, label: "Table", genericArgs: @["K", "V"])
 var SymbolType = Type(kind: T.Simple, label: "Symbol")
+var ClassType = Type(kind: T.Simple, label: "Class")
 
 proc sequenceType*(element: Type): Type =
   result = Type(kind: T.Compound, args: @[element], original: SequenceType)
@@ -538,13 +540,13 @@ proc deepCopy*(a: Node): Node =
     return nil
   result = genKind(Node, a.kind)
   case a.kind:
-  of String:
+  of String, Docstring:
     result.text = a.text
     result.typ = StringType
   of Int:
     result.i = a.i
     result.typ = IntType
-  of Variable, Operator:
+  of Variable, Operator, RubyConst:
     result.label = a.label
   of PyHugeInt:
     result.h = a.h
@@ -651,16 +653,20 @@ proc loadNode*(m: JsonNode): Node =
   if m{"kind"}.isNil:
     return nil
   var kind = parseEnum[NodeKind](m{"kind"}.getStr())
-  
   case kind:
   of Variable:
     result = Node(kind: Variable, label: m{"label"}.getStr())
   of Operator:
-    result = Node(kind: Variable, label: m{"label"}.getStr())
+    result = Node(kind: Operator, label: m{"label"}.getStr())
+  of RubyConst:
+    result = Node(kind: RubyConst, label: m{"label"}.getStr())
   of Int:
     result = Node(kind: Int, i: m{"i"}.getInt(), typ: IntType)
   of String:
     result = Node(kind: String, text: m{"text"}.getStr(), typ: StringType)
+  
+  of Docstring:
+    result = Node(kind: Docstring, text: m{"text"}.getStr(), typ: StringType)
   of Symbol:
     result = Node(kind: Symbol, text: m{"text"}.getStr(), typ: SymbolType)
   of Block:
@@ -693,21 +699,24 @@ proc loadMethod*(m: JsonNode, isBlock: bool = false): Node =
     echo "BLOCK"
     echo result.typ
 
-proc loadClass*(m: JsonNode): Node =
+proc loadClass*(m: JsonNode, traceDB: TraceDB): Node =
   result = Node(kind: Class)
   result.label = m{"label"}.getStr()
   result.fields = m{"fields"}.mapIt(Field(label: it{"label"}.getStr(), node: it{"node"}.loadNode()))
   result.methods = m{"methods"}.mapIt(Field(label: it{"label"}.getStr(), node: it{"node"}.loadMethod()))
-  result.typ = loadType(m{"typ"})  
-  if result.typ.isNil:
+  var typ = loadType(m{"typ"})
+  if typ.isNil or typ.kind != Simple:
     # TODO
     result.typ = Type(kind: T.Object, fields: initTable[string, Type]())
+  else:
+    result.typ = traceDB.types[typ.label]
 
-proc loadModule*(m: JsonNode): Module =
+
+proc loadModule*(m: JsonNode, traceDB: TraceDB): Module =
   result = Module()
   result.imports = @[]
   result.main = m{"main"}.mapIt(loadNode(it))
-  result.classes = m{"classes"}.mapIt(loadClass(it))
+  result.classes = m{"classes"}.mapIt(loadClass(it, traceDB))
 
 proc load*(file: string): TraceDB =
   new(result)
@@ -719,10 +728,14 @@ proc load*(file: string): TraceDB =
   # result.projectDir = result.root{"@projectDir"}.getStr()
   # result.package = result.projectDir.rsplit("/", 1)[1]
   for label, m in result.root:
-    result.paths.add(label)
-    result.modules.add(loadModule(m))
-    break
-
+    for typ, obj in m:
+      result.types[typ] = loadType(obj)
+  for label, m in result.root:
+    if label != "%types":
+      if label != "tracing.rb":
+        result.paths.add(label)
+        result.modules.add(loadModule(m, result))
+    
 
   
 proc startPath*(db: TraceDB): string =
@@ -786,9 +799,9 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
   if l.kind != r.kind:
     return false
   case l.kind:
-  of Variable, Operator:
+  of Variable, Operator, RubyConst:
     result = l.label == r.label
-  of String:
+  of String, Docstring:
     result = l.text == r.text
   of Symbol:
     result = l.text == r.text
@@ -885,6 +898,8 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)], isOutputArg: b
   if node.kind == nnkDo and isOutput:
     typ = ident($node[3][0] & "Type")
     result = compileNode(node[^1], replaced, isOutput)
+    if result[0].repr in @["call"]:
+      result.del(result.len - 1)
     result.add(typ)
     return
   # dump node.lisprepr
@@ -929,6 +944,9 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)], isOutputArg: b
         sons = sons.concat(oldSons[1 .. ^1])
         if inRuby and ($sons[1]).startsWith("is_"):
           sons[1] = newLit(($(sons[1]))[3 .. ^1] & "?")
+      else:
+        let voidNode = ident("VoidType")
+        sons.add(voidNode)
     # Praise the Lord!
     of nnkPrefix:
       call = "call"
@@ -1120,7 +1138,7 @@ rewrite do (x: Table, y: Method):
 do:
   code:
     if args["y"].args.len == 1:
-      forin(args["y"].args[0], args["x"], Node(kind: Block, children: args["y"].code))
+      forin(args["y"].args[0], args["x"], Node(kind: Code, children: args["y"].code))
     else:
       forin(args["y"].args[0], args["y"].args[1], args["x"], Node(kind: Code, children: args["y"].code)) 
       # TODO matching more exact , but it doesnt really matter for now
@@ -1132,6 +1150,19 @@ rewrite do (x: Sequence, y: Method):
 do:
   code:
     forin(args["y"].args[0], args["x"], Node(kind: Block, children: args["y"].code))
+
+rewrite do (x: Any, y: Class, z: Method):
+  x.describe(y, z)
+do:
+  code:
+    command(variable("suite"), Node(kind: String, text: args["y"].label), Node(kind: Code, children: args["z"].code), VoidType)
+
+rewrite do (x: Any, y: Method):
+  subject(x, y)
+do:
+  code:
+    assign(variable(args["x"].text), Node(kind: New, children: @[variable("ClassVars")], typ: Type(kind: T.Simple, label: "ClassVars")), Var)
+
 
 var rewriteinputruby = rewriteList
 rewriteList = Rewrite(rules: @[])
@@ -1214,7 +1245,7 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
       node.returnType = class
       node.typ.returnType = class
       node.args = node.args[1 .. ^1]
-      node.code = @[call(variable("new"), variable("result"))].concat(node.code)
+      node.code = @[call(variable("new"), variable("result"), VoidType)].concat(node.code)
     var met = childEnv(env, node.label, args, node.returnType)
 
     for subNode in node.code:
@@ -1230,6 +1261,8 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
       analyze(arg, env)
   of Variable:
     node.typ = env.get(node.label)
+  of RubyConst:
+    node.typ = Type(kind: T.Simple, label: "Class")
   of Int:
     node.typ = IntType
   of Assign:
@@ -1239,7 +1272,7 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
       if not env.types.hasKey(node.children[0].label):
         node.declaration = Var
         env[node.children[0].label] = node.children[0].typ
-  of String:
+  of String, Docstring:
     node.typ = StringType
   of Symbol:
     node.typ = SymbolType
@@ -1270,9 +1303,11 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
       analyze(child, env)
   of Attribute:
     analyze(node.children[0], env)
-    if node.children[0].typ.kind == Object:
+    if not node.children[0].typ.isNil and node.children[0].typ.kind == Object:
       let typ = node.children[0].typ.fields[node.children[1].text]
       node.typ = typ
+    else:
+      node.typ = VoidType
   of Self:
     node.typ = env["self"]
   else:
