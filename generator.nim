@@ -475,6 +475,7 @@ proc generateSequence(generator: var Generator, node: Node): PNode =
 proc generateRangeLess(generator: var Generator, node: Node): PNode =
   result = nkInfix.newTree(generateIdent("..<"), emitNode(node[0]), emitNode(node[1]))
 
+
 proc generateTable(generator: var Generator, node: Node): PNode =
   var dict = nkTableConstr.newTree()
   for z in 0..<len(node.children):
@@ -483,6 +484,9 @@ proc generateTable(generator: var Generator, node: Node): PNode =
 
 proc generateWhile(generator: var Generator, node: Node): PNode =
   result = nkWhileStmt.newTree(emitNode(node[0]), emitNode(node[1]))
+
+proc generatePair(generator: var Generator, node: Node): PNode =
+  result = nkExprEqExpr.newTree(generateIdent(node[0].text), emitNode(node[1]))
 
 proc generateUnaryOp(generator: var Generator, node: Node): PNode =
   result = nkPrefix.newTree(generateIdent(node[0].label), emitNode(node[1]))
@@ -629,6 +633,8 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateTable(node)
   of While:
     result = generator.generateWhile(node)
+  of Pair:
+    result = generator.generatePair(node)
   of UnaryOp:
     result = generator.generateUnaryOp(node)
   of NimExprColonExpr:

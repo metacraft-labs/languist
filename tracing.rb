@@ -20,7 +20,11 @@ def trace_calls(data)
         if arg[:label] == :self
           arg[:typ] = load_type(data.binding.receiver)
         else
-          arg[:typ] = load_type(data.binding.local_variable_get(arg[:label]))
+          begin
+            arg[:typ] = load_type(data.binding.local_variable_get(arg[:label]))
+          rescue
+            arg[:typ] = {kind: :Simple, label: "Void"}
+          end
         end
       end
     end
@@ -250,8 +254,18 @@ class InterTranslator
     res = {imports: [], main: [], classes: [], lines: {}, method_lines: {}}
     @inter_ast = res
     children = [@ast]
+    local = @ast
     if @ast.type == :begin
       children = @ast.children
+      local = children[-1]
+    end
+    # HACK: improve
+    
+    if local.type == :module
+      while local.children.length >= 2 && local.children[1].type == :module
+        local = local.children[1]
+      end
+      children = local.children[1 .. -1]
     end
     children.each do |it|
       if it.type == :class
@@ -373,6 +387,20 @@ class InterTranslator
   def process_arg(node)
     {kind: :Variable, label: node.children[0]}
   end
+
+  def process_module(node)
+    p node
+    process_node(node.children[1])
+  end
+
+  def process_masgn(node)
+    if node.children[0].children.length == 1
+      right = {kind: :Index, children: [process_node(node.children[1].children[0].children[0]), {kind: :Int, i: 0}]}
+      {kind: :Assign, children: [{kind: :Variable, label: process_node(node.children[0].children[0].children[1])}, right]}
+    else
+      {kind: :Nil}
+    end
+  end
 end
 
 class InterProcessor
@@ -469,16 +497,20 @@ NORMAL = Set.new [:RubyIf, :RubyPair]
 
 def compile_child child
   if child[:kind] == :RubySend
-    if child[:children][0][:kind] == :Nil
+    m = if child[:children][0][:kind] == :Nil
+      arg_index = 1
       if !child[:typ].nil? || !child[:children][2].nil?
         {kind: :Call, children: child[:children][1 .. -1].map { |l| compile_child l }, typ: child[:typ]}
       else
+        arg_index = -1
         child[:children][1]
       end
     else
       m = if !child[:typ].nil? || !child[:children][2].nil?
+        arg_index = 2
         {kind: :Send, children: child[:children].map { |l| compile_child l }, typ: child[:typ]}
       else
+        arg_index = -1
         {kind: :Attribute, children: child[:children].map { |l| compile_child l }, typ: child[:typ]}
       end
       p m
@@ -486,13 +518,30 @@ def compile_child child
         m[:children][1] = {kind: :String, text: m[:children][1][:label]}
       end
       if m[:kind] == :Send && OPERATORS.include?(m[:children][1][:text].to_sym)
+        arg_index = -1
         op = m[:children][1]
         op[:kind] = :Operator
         op[:label] = op[:text]
         m = {kind: :BinOp, children: [op, m[:children][0], m[:children][2]], typ: m[:typ]}
       end
       m
-    end.tap { |t| t[:line] = child[:line]; t[:column] = child[:column] }
+    end
+    p "index", arg_index
+    if arg_index != -1
+      new_args = []
+
+      m[:children][arg_index .. -1].each do |arg|
+        p arg[:kind]
+        if arg[:kind] == :Table
+          new_args += arg[:children]
+        else
+          new_args.push(arg)
+        end
+      end
+
+      m[:children] = m[:children][0 .. arg_index - 1] + new_args
+    end
+    m.tap { |t| t[:line] = child[:line]; t[:column] = child[:column] }
   elsif child.key?(:children)
     res = child
     res[:children] = child[:children].map { |it| compile_child it }
@@ -524,11 +573,13 @@ def compile traces
       else
         mercy = klass[:children][2 .. -1]
       end
-      
+      if mercy.length == 1 && mercy[0][:kind] == :Code
+        mercy = mercy[0][:children].select { |n| n[:kind] == :NodeMethod }
+      end
       $types_no_definition.delete klass[:children][0][:label]
       {kind: :Class,
        label: klass[:children][0][:label],
-       methods: mercy.map { |met| {label: met[:label][:label], node: compile_child(met)} },
+       methods: mercy.map { |met| p met; {label: met[:label][:label], node: compile_child(met)} },
        fields: [],
        typ: $inter_types[klass[:children][0][:label]]}
     end
