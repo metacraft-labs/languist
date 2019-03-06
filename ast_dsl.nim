@@ -125,7 +125,8 @@ macro variableGenBlock*(name: untyped, typ: untyped = nil): untyped =
       var n = `name`
       if n.endsWith("?"):
         n = "is_" & n[0 .. ^2]
-      rewriteList.genBlock.add(n)
+      rewrites[0].genBlock.add(n)
+      rewrites[1].genBlock.add(n)
       Node(
         kind: Variable,
         label: n,

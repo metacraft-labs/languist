@@ -190,7 +190,7 @@ type
 
   NimVersion* {.pure.} = enum V019, Development
 
-  Generator* = object
+  Generator* = ref object
     indent*:               int
     v*:                    NimVersion
     module*:               Module
@@ -878,6 +878,9 @@ proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
 
 include ast_dsl
 
+var rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[])
+var rewrites: seq[Rewrite] = @[]
+
 proc replace(rule: RewriteRule, node: Node, blockNode: Node, m: Module): Node =
   var args = initTable[string, Node]()
   # dump node
@@ -908,8 +911,9 @@ proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): Node
   if not node.isFinished:
     b = rewrite.find(node)
   var newNode = node
-  if node.kind == Call and node.children[0].kind == Variable and node.children[0].label in rewrite.genBlock:
-    dump node
+  if node.kind == Call and node.children[0].kind == Variable and node.children[0].label in rewrites[1].genBlock:
+    node.kind = MacroCall # = genKind(Node, MacroCall)
+    node.children[^1] = Node(kind: Code, children: node.children[^1].code)
   if b.len > 0:
     var c = b[0]
     for a in b:
@@ -1163,8 +1167,7 @@ macro rewrite*(input: untyped, output: untyped): untyped =
       `result`
   dump result.repr
 
-var rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[])
-    
+
 rewrite do (x: Any):
   puts x
 do -> String:
@@ -1224,13 +1227,13 @@ rewrite do (x: String, y: String):
   def_node_matcher(x, y)
 do:
   code:
-    Node(kind: MacroCall, children: @[variable("nodeMatcher"), variableGenBlock(args["x"].text), args["y"]], typ: VoidType)
-    
+    var res = Node(kind: MacroCall, children: @[variable("nodeMatcher"), variableGenBlock(args["x"].text), args["y"]], typ: VoidType)
+    dump rewrites[1].genBlock
+    res
+
 var rewriteinputruby = rewriteList
 rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[])
-rewriteList.genBlock = rewriteinputruby.genBlock
-# TODO: 
-rewriteList.genBlock = @["is_case_equality"]
+
 static:
   inRuby = false
 
@@ -1254,6 +1257,7 @@ do:
 
 
 var rewritenim = rewriteList
+rewrites = @[rewriteinputruby, rewritenim]
 
 var A = Type(kind: T.Object, label: "A", fields: initTable[string, Type]())
 
