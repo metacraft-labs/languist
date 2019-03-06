@@ -24,6 +24,7 @@ type
     isRef*:    bool
     isVar*:    bool
     fieldLabel*: string
+    rewritten*: bool
     case kind*: T:
     of T.Simple:
       # Types of atom values and types for which we only know the name, not the structure
@@ -93,6 +94,7 @@ type
     sysPath*:     seq[string]
     projectDir*:  string
     package*:     string
+    rewrite*:     Rewrite
   
   Env* = ref object
     types*:       Table[string, Type]
@@ -104,7 +106,7 @@ type
     hasYield*:    bool
 
   NodeKind* = enum
-    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, Table, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, Slice, ForIn, Docstring, Command,
+    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, Table, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, Slice, ForIn, Docstring, Command, MacroCall,
     
     RubyConst, RubyMasgn, RubyMlhs, RubySplat,
     PyAST, PyAdd, PyAnd, PyAnnAssign, PyAssert, PyAssign, PyAsyncFor, PyAsyncFunctionDef, PyAsyncWith, PyAttribute,
@@ -133,6 +135,7 @@ type
     label*: string
     isFinished*: bool
     isReplace*: bool
+    genBlock*: bool
     case kind*: NodeKind:
     of String, Symbol, Docstring:
       text*: string
@@ -192,7 +195,24 @@ type
     v*:                    NimVersion
     module*:               Module
     identifierCollisions*: HashSet[string]
-    res*:                  PNode
+    types*:                  PNode
+    global*:                 PNode
+    methods*:                PNode
+    main*:                   PNode
+    top*:                    PNode
+
+  RewriteRule* = ref object
+    input*:   Node
+    output*:  proc(node: Node, args: Table[string, Node], blockNode: Node, rule: RewriteRule): Node
+    args*:    seq[seq[int]]
+    replaced*: seq[tuple[label: string, typ: Type]]
+    isGeneric*: bool
+    dependencies*: seq[string]
+
+  Rewrite* = object
+    rules*: seq[RewriteRule]
+    types*: Table[string, Type]
+    genBlock*: seq[string]
 
 let endl = "\n"
 
@@ -436,9 +456,12 @@ proc dump*(node: Node, depth: int, typ: bool = false): string =
         echo "BLOCK NIL"
       $node.kind & "($1)\n$2\n$3" % [node.label, node.args.mapIt(dump(it, 0, typ)).join(" "), node.code.mapIt(dump(it, depth + 1, typ)).join("\n")]
     of Class:
-      "Class($1)\n$2" % [node.label, node.methods.mapIt(dump(it.node, depth + 1, typ)).join(" ")]
+      "Class($1, $2)\n$3" % [node.label, dump(node.typ.base, 0), node.methods.mapIt(dump(it.node, depth + 1, typ)).join(" ")]
     else:
-      "$1$2:\n$3" % [kind, typDump, node.children.mapIt(dump(it, depth + 1, typ)).join("\n")]
+      var temp = "$1$2:\n$3" % [kind, typDump, node.children.mapIt(dump(it, depth + 1, typ)).join("\n")]
+      if node.kind == Assign:
+        temp.add("\n" & offset & "  " & $node.declaration)
+      temp
   result = "$1$2" % [offset, left]
 
 proc dump*(m: Module, depth: int, typ: bool = false): string =
@@ -559,6 +582,7 @@ proc deepCopy*(a: Node): Node =
   of Class:
     result.methods = a.methods.mapIt(Field(label: it.label, node: deepCopy(it.node)))
     result.label = a.label
+    result.typ = deepCopy(a.typ)
   of Symbol:
     result.text = a.text
     result.typ = SymbolType
@@ -571,7 +595,7 @@ proc deepCopy*(a: Node): Node =
   result.children = @[]
   for child in a.children:
     result.children.add(deepCopy(child))
-  result.typ = a.typ
+  result.typ = deepCopy(a.typ)
 
 proc camelCase*(label: string): string =
   var remainder = label
@@ -594,7 +618,23 @@ proc translateIdentifier*(label: string, identifierCollisions: HashSet[string]):
     return label
 
 
-proc loadType*(typ: JsonNode): Type =
+proc rewriteType*(traceDB: TraceDB, label: string, typ: Type): Type =
+  result = typ
+  echo &"TYP {label}"
+  if traceDB.rewrite.types.len != 0:
+    # first we check exact label and then the closest submatches 
+    # e.g. A::B::C , A::B::*, A::*
+    if traceDB.rewrite.types.hasKey(label):
+      return traceDB.rewrite.types[label]
+    let tokens = label.split("::")
+
+    for i in countdown(tokens.len - 2, 0):
+      let subLabel = tokens[0 .. i].join("::") & "::*"
+      echo &"FIND {subLabel}"
+      if traceDB.rewrite.types.hasKey(subLabel):
+        return traceDB.rewrite.types[subLabel]
+
+proc loadType*(typ: JsonNode, traceDB: TraceDB): Type =
   if typ{"kind"}.isNil:
     return nil
   var kind = parseEnum[T](typ{"kind"}.getStr())
@@ -604,7 +644,7 @@ proc loadType*(typ: JsonNode): Type =
     result.args = @[]
     # result.variables = @[]
     for arg in typ{"args"}:
-      var variable = loadType(arg)
+      var variable = loadType(arg, traceDB)
       result.args.add(variable)
     # for v in typ{"variables"}:
     #   var variable = PyVariable(name: ($v{"name"})[1..^2])
@@ -613,16 +653,16 @@ proc loadType*(typ: JsonNode): Type =
     if typ{"returnType"}.isNil:
       result.returnType = VoidType
     else:
-      result.returnType = loadType(typ{"returnType"})
+      result.returnType = loadType(typ{"returnType"}, traceDB)
   of T.Object:
     result.fields = initTable[string, Type]()
     if typ{"base"} == nil:
       result.base = nil
     else:
-      result.base = loadType(typ{"base"})
+      result.base = loadType(typ{"base"}, traceDB)
     for element in typ{"fields"}:
       let label = element{"fieldLabel"}.getStr()
-      let typ = loadType(element)
+      let typ = loadType(element, traceDB)
       result.fields[label] = typ
     result.isVar = false
     result.isRef = true
@@ -631,9 +671,9 @@ proc loadType*(typ: JsonNode): Type =
   of T.Compound:
     result.args = @[]
     for arg in typ{"args"}:
-      var variable = loadType(arg)
+      var variable = loadType(arg, traceDB)
       result.args.add(variable)
-    result.original = loadType(typ{"original"})
+    result.original = loadType(typ{"original"}, traceDB)
   of T.Generic:
     result.label = typ{"label"}.getStr()
     result.genericArgs = @[]
@@ -646,10 +686,16 @@ proc loadType*(typ: JsonNode): Type =
       result.label = ""
     else:
       result.label = typ{"label"}.getStr()
+  if result.kind in {T.Simple, T.Object}:
+    result = rewriteType(traceDB, result.label, result)
+    if "::" in result.label:
+      # TODO module
+      result.label = result.label.rsplit("::", 1)[1]
 
-proc loadMethod*(m: JsonNode, isBlock: bool = false): Node
 
-proc loadNode*(m: JsonNode): Node =
+proc loadMethod*(m: JsonNode, traceDB: TraceDB, isBlock: bool = false): Node
+
+proc loadNode*(m: JsonNode, traceDB: TraceDB): Node =
   if m{"kind"}.isNil:
     return nil
   var kind = parseEnum[NodeKind](m{"kind"}.getStr())
@@ -671,28 +717,30 @@ proc loadNode*(m: JsonNode): Node =
     result = Node(kind: Symbol, text: m{"text"}.getStr(), typ: SymbolType)
   of Block:
     # FAITH
-    return loadMethod(m, isBlock=true)
+    return loadMethod(m, traceDB, isBlock=true)
   else:
     result = genKind(Node, kind)
     if m{"children"}.isNil:
       discard
     else:
-      result.children = m{"children"}.mapIt(loadNode(it))
+      result.children = m{"children"}.mapIt(loadNode(it, traceDB))
       if not m{"label"}.isNil:
         result.label = m{"label"}.getStr()
-
+    if kind == Assign:
+      if not m{"declaration"}.isNil:
+        result.declaration = parseEnum[Declaration](m{"declaration"}.getStr())
   # Faith
-  result.typ = loadType(m{"typ"})
+  result.typ = loadType(m{"typ"}, traceDB)
 
-proc loadMethod*(m: JsonNode, isBlock: bool = false): Node =
+proc loadMethod*(m: JsonNode, traceDB: TraceDB, isBlock: bool = false): Node =
   result = Node(kind: NodeMethod)
   if isBlock:
     result = Node(kind: Block)
   result.label = m{"label"}{"label"}.getStr()
-  result.args = m{"args"}.mapIt(loadNode(it))
-  result.code = m{"code"}.mapIt(loadNode(it))
-  result.typ = loadType(m{"typ"})
-  result.returnType = loadType(m{"returnType"})
+  result.args = m{"args"}.mapIt(loadNode(it, traceDB))
+  result.code = m{"code"}.mapIt(loadNode(it, traceDB))
+  result.typ = loadType(m{"typ"}, traceDB)
+  result.returnType = loadType(m{"returnType"}, traceDB)
   if result.typ.isNil:
     var args = result.args.mapIt(it.typ)
     result.typ = Type(kind: T.Method, args: args, returnType: result.returnType)
@@ -702,34 +750,42 @@ proc loadMethod*(m: JsonNode, isBlock: bool = false): Node =
 proc loadClass*(m: JsonNode, traceDB: TraceDB): Node =
   result = Node(kind: Class)
   result.label = m{"label"}.getStr()
-  result.fields = m{"fields"}.mapIt(Field(label: it{"label"}.getStr(), node: it{"node"}.loadNode()))
-  result.methods = m{"methods"}.mapIt(Field(label: it{"label"}.getStr(), node: it{"node"}.loadMethod()))
-  var typ = loadType(m{"typ"})
-  if typ.isNil or typ.kind != Simple:
+  result.fields = m{"fields"}.mapIt(Field(label: it{"label"}.getStr(), node: it{"node"}.loadNode(traceDB)))
+  result.methods = m{"methods"}.mapIt(Field(label: it{"label"}.getStr(), node: it{"node"}.loadMethod(traceDB)))
+  var typ = loadType(m{"typ"}, traceDB)
+  dump result.label
+  dump dump(typ, 0)
+  if typ.isNil or typ.kind notin {Simple, Object}:
     # TODO
     result.typ = Type(kind: T.Object, fields: initTable[string, Type]())
   else:
     result.typ = traceDB.types[typ.label]
-
+  if result.typ.rewritten:
+    return nil
 
 proc loadModule*(m: JsonNode, traceDB: TraceDB): Module =
   result = Module()
   result.imports = @[]
-  result.main = m{"main"}.mapIt(loadNode(it))
-  result.classes = m{"classes"}.mapIt(loadClass(it, traceDB))
+  result.main = m{"main"}.mapIt(loadNode(it, traceDB))
+  result.classes = m{"classes"}.mapIt(loadClass(it, traceDB)).filterIt(not it.isNil)
 
-proc load*(file: string): TraceDB =
+proc load*(file: string, rewrite: Rewrite): TraceDB =
   new(result)
   result.root = parseJson(readFile(file))
   result.types = initTable[string, Type]()
   result.sysPath = @[]
   result.paths = @[]
   result.modules = @[]
+  result.rewrite = rewrite
   # result.projectDir = result.root{"@projectDir"}.getStr()
   # result.package = result.projectDir.rsplit("/", 1)[1]
   for label, m in result.root:
     for typ, obj in m:
-      result.types[typ] = loadType(obj)
+      result.types[typ] = loadType(obj, result)
+      if "::" in typ:
+        # TODO
+        # cant think of the smarter way
+        result.types[typ.rsplit("::", 1)[1]] = result.types[typ]
   for label, m in result.root:
     if label != "%types":
       if label != "tracing.rb":
@@ -752,18 +808,6 @@ proc startPath*(db: TraceDB): string =
   if result == "":
     result = maybeResult
 
-
-type
-  RewriteRule* = ref object
-    input*:   Node
-    output*:  proc(node: Node, args: Table[string, Node], blockNode: Node, rule: RewriteRule): Node
-    args*:    seq[seq[int]]
-    replaced*: seq[tuple[label: string, typ: Type]]
-    isGeneric*: bool
-    dependencies*: seq[string]
-
-  Rewrite* = object
-    rules*: seq[RewriteRule]
 
 proc accepts(l: Type, r: Type): bool =
   if l.kind == T.Any:
@@ -864,6 +908,8 @@ proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): Node
   if not node.isFinished:
     b = rewrite.find(node)
   var newNode = node
+  if node.kind == Call and node.children[0].kind == Variable and node.children[0].label in rewrite.genBlock:
+    dump node
   if b.len > 0:
     var c = b[0]
     for a in b:
@@ -1047,6 +1093,14 @@ proc rewriteIt(code: Node): Node =
   result = Node(kind: Code, children: code.code)
 
 macro rewrite*(input: untyped, output: untyped): untyped =
+  if input.kind == nnkStrLit:
+
+    let node = output
+    result = quote:
+      rewriteList.types[`input`] = `node`
+      rewriteList.types[`input`].rewritten = true
+    echo result.repr
+    return result
   let (inputNode, replaced) = generateInput(input)
   result = inputNode
   let help = ident("help")
@@ -1109,7 +1163,7 @@ macro rewrite*(input: untyped, output: untyped): untyped =
       `result`
   dump result.repr
 
-var rewriteList = Rewrite(rules: @[])
+var rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[])
     
 rewrite do (x: Any):
   puts x
@@ -1164,9 +1218,19 @@ do:
     assign(variable(args["x"].text), Node(kind: New, children: @[variable("ClassVars")], typ: Type(kind: T.Simple, label: "ClassVars")), Var)
 
 
-var rewriteinputruby = rewriteList
-rewriteList = Rewrite(rules: @[])
+rewrite "RuboCop::AST::*", Type(kind: T.Simple, label: "Node")
 
+rewrite do (x: String, y: String):
+  def_node_matcher(x, y)
+do:
+  code:
+    Node(kind: MacroCall, children: @[variable("nodeMatcher"), variableGenBlock(args["x"].text), args["y"]], typ: VoidType)
+    
+var rewriteinputruby = rewriteList
+rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[])
+rewriteList.genBlock = rewriteinputruby.genBlock
+# TODO: 
+rewriteList.genBlock = @["is_case_equality"]
 static:
   inRuby = false
 
@@ -1187,6 +1251,7 @@ do:
   code:
     send(args["x"], "mapIt", rewriteIt(args["y"]))
   dependencies: @["sequtils"]
+
 
 var rewritenim = rewriteList
 
@@ -1260,6 +1325,9 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
     for arg in node.children[1 .. ^1]:
       analyze(arg, env)
   of Variable:
+    if node.label.endsWith("?") and node.label.len > 1:
+      echo node.label
+      node.label = "is_" & node.label[0 .. ^2]
     node.typ = env.get(node.label)
   of RubyConst:
     node.typ = Type(kind: T.Simple, label: "Class")
@@ -1269,7 +1337,7 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
     analyze(node.children[1], env)
     node.children[0].typ = node.children[1].typ
     if node.children[0].kind == Variable:
-      if not env.types.hasKey(node.children[0].label):
+      if not env.types.hasKey(node.children[0].label) and node.declaration == Existing:
         node.declaration = Var
         env[node.children[0].label] = node.children[0].typ
   of String, Docstring:
@@ -1329,7 +1397,7 @@ proc analyzeCode(traceDB: TraceDB, env: Env) =
     input.analyze(env)
 
 
-var traceDB = load(if paramCount() == 0: "lang_traces.json" else: paramStr(1))
+var traceDB = load(if paramCount() == 0: "lang_traces.json" else: paramStr(1), rewriteinputruby)
 
 
 

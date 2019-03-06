@@ -16,7 +16,7 @@ def trace_calls(data)
     if $inter_traces[data.path][:method_lines][data.lineno][:kind] == :NodeMethod && data.event != :b_call ||
        $inter_traces[data.path][:method_lines][data.lineno][:kind] == :Block && data.event == :b_call
       $inter_traces[data.path][:method_lines][data.lineno][:args].each do |arg|
-        p arg
+        puts "ARG #{arg}"
         if arg[:label] == :self
           arg[:typ] = load_type(data.binding.receiver)
         else
@@ -32,12 +32,13 @@ def trace_calls(data)
 end
 
 $t = TracePoint.new(:call, :c_call, :b_call) do |tp|
-  if tp.path.include?("rubocop") && tp.path.include?("class_vars")
-    p tp    
+  if tp.method_id != :method_added && tp.path.include?("rubocop") && tp.path.include?("case_equality")
+    a = 0
   else
     next
   end
-  if ![:new, :initialize, :enable, :disable].include?(tp.method_id) #tp.path != "tracing.rb" && 
+  # TODO require require_relative
+  if ![:new, :initialize, :enable, :disable, :require_relative, :require].include?(tp.method_id) #tp.path != "tracing.rb" && 
     p tp
     if !$inter_traces.key?(tp.path)
       $inter_traces[tp.path] = generate_ast(tp.path)
@@ -54,7 +55,7 @@ end
      #!tp.path.include?("core_ext")
     
 $t2 = TracePoint.new(:return, :c_return, :b_return) do |tp|
-  if tp.path.include?("rubocop") && tp.path.include?("class_vars")
+  if tp.method_id != :method_added && tp.path.include?("rubocop") && tp.path.include?("case_equality")
     p tp    
   else
     next
@@ -108,10 +109,11 @@ def load_type(arg)
     return {kind: :Simple, label: "Void"}
   end
   
-  $t.disable
-  $t2.disable
+  #$t.disable
+  #$t2.disable
   
   klass = arg.class
+  # puts "TYPE #{arg} #{klass}"
   if !$processing.key?(klass.name)
     $processing[klass.name] = []
     variables = arg.instance_variables.map do |a|
@@ -160,13 +162,17 @@ def load_type(arg)
       res[:kind] = :Object
       res[:fields] = variables
       $inter_types[label] = res
+      if label.to_s.include?('::')
+        p label.to_s.split('::')[-1].to_sym
+        $inter_types[label.to_s.split('::')[-1].to_sym] = res
+      end
       res = {kind: :Simple, label: label} # Praise the Lord!
     end
     # far simpler to just move all the classes to %types: easier to process and search
   end
   
-  $t.enable
-  $t2.enable 
+  #$t.enable
+  #$t2.enable 
   res
 end
 
@@ -269,7 +275,9 @@ class InterTranslator
     end
     children.each do |it|
       if it.type == :class
+        @current_class = it.children[0].children[1].to_s
         res[:classes].push(process_node it)
+        @current_class = ''
       elsif it.type == :send && it.children[0].nil? && it.children[1] == :require
         res[:imports].push(it.children[2].children[0])
       else
@@ -380,6 +388,16 @@ class InterTranslator
     {kind: :Assign, children: [{kind: :Variable, label: node.children[0]}, process_node(node.children[1])]}
   end
 
+  def process_casgn(node)
+    value = node.children[-1]
+    if value.type == :send && value.children[-1] == :freeze
+      value = value.children[0]
+    end
+    # how to do it when global and several have the same name? label = "#{@current_class}#{node.children[1]}"
+    label = node.children[1]
+    {kind: :Assign, children: [{kind: :Variable, label: label}, process_node(value)], declaration: :Const}
+  end
+
   def process_nil(node)
     {kind: :Nil}
   end
@@ -389,7 +407,6 @@ class InterTranslator
   end
 
   def process_module(node)
-    p node
     process_node(node.children[1])
   end
 
@@ -480,7 +497,7 @@ end
 def generate_ast(path)
   input = File.read(path)
   ast = Parser::CurrentRuby.parse(input)
-  p path
+  puts "AST #{path}"
   # InterProcessor.new(traces, methods, inter_ast).process(ast)
   InterTranslator.new(ast).process
 end
@@ -513,7 +530,6 @@ def compile_child child
         arg_index = -1
         {kind: :Attribute, children: child[:children].map { |l| compile_child l }, typ: child[:typ]}
       end
-      p m
       if m[:children][1][:kind] == :Variable
         m[:children][1] = {kind: :String, text: m[:children][1][:label]}
       end
@@ -526,12 +542,10 @@ def compile_child child
       end
       m
     end
-    p "index", arg_index
     if arg_index != -1
       new_args = []
 
       m[:children][arg_index .. -1].each do |arg|
-        p arg[:kind]
         if arg[:kind] == :Table
           new_args += arg[:children]
         else
@@ -560,13 +574,19 @@ def compile_child child
 end
 
 def compile traces
-  $types_no_definition = $inter_types
+  $types_no_definition = Hash[$inter_types.map { |k, v| [k, v] }]
   traces.each do |path, file|
     file[:main] = file[:main].map do |child|
       compile_child(child)
     end
 
     file[:classes] = file[:classes].map do |klass|
+      parent = klass[:children][1]
+      if parent.nil?
+        parent = {kind: :Nil}
+      elsif parent[:kind] == :RubyConst
+        parent = {kind: :Simple, label: parent[:label]}
+      end
       mercy = klass[:children][2]
       if mercy[:kind] == :RubyBegin
         mercy = mercy[:children]
@@ -574,12 +594,18 @@ def compile traces
         mercy = klass[:children][2 .. -1]
       end
       if mercy.length == 1 && mercy[0][:kind] == :Code
+        children = mercy[0][:children]
         mercy = mercy[0][:children].select { |n| n[:kind] == :NodeMethod }
+        b = children.select { |n| n[:kind] != :NodeMethod }
+        file[:main] += b.map { |it| compile_child(it) }
       end
+      p klass[:children][0][:label]
+      $inter_types[klass[:children][0][:label]][:base] = parent
       $types_no_definition.delete klass[:children][0][:label]
+      
       {kind: :Class,
        label: klass[:children][0][:label],
-       methods: mercy.map { |met| p met; {label: met[:label][:label], node: compile_child(met)} },
+       methods: mercy.map { |met| {label: met[:label][:label], node: compile_child(met)} },
        fields: [],
        typ: $inter_types[klass[:children][0][:label]]}
     end

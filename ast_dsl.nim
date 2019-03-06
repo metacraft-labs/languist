@@ -118,6 +118,21 @@ macro variable*(name: untyped, typ: untyped = nil): untyped =
       typ: `t`,
       isFinished: true)
 
+macro variableGenBlock*(name: untyped, typ: untyped = nil): untyped =
+  let t = if typ.isNil: newNilLit() else: typ
+  result = quote:
+    block:
+      var n = `name`
+      if n.endsWith("?"):
+        n = "is_" & n[0 .. ^2]
+      rewriteList.genBlock.add(n)
+      Node(
+        kind: Variable,
+        label: n,
+        typ: `t`,
+        genBlock: true,
+        isFinished: true)
+
 macro input_variable*(name: untyped, typ: untyped = nil): untyped =
   let t = if typ.isNil: newNilLit() else: typ
   result = quote:

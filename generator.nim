@@ -50,7 +50,7 @@ proc generateImports(generator: var Generator, imp: seq[Node]): PNode =
 
 proc generateMethod(generator: var Generator, met: Node): PNode
 
-proc generateClass(generator: var Generator, t: Node): PNode =
+proc generateTypeDeclaration(generator: var Generator, t: Node): PNode =
   assert t.kind in {Class}
 
   assert t.typ.kind == T.Object
@@ -84,7 +84,7 @@ proc generateClass(generator: var Generator, t: Node): PNode =
   var objectNode = nkObjectTy.newTree(
       emptyNode, base, recList)
 
-  if t.typ.isRef:
+  if true: # TODO why not working t.typ.isRef:
     objectNode = nkRefTy.newTree(
       objectNode)
   var tNode = nkTypeDef.newTree(
@@ -97,7 +97,7 @@ proc generateClass(generator: var Generator, t: Node): PNode =
     result.add(docstring)
   result = nkStmtList.newTree(result)
   for met in t.methods:
-    result.add(generator.generateMethod(met.node))
+    generator.methods.add(generator.generateMethod(met.node))
 
 
 proc generateType(generator: var Generator, typ: Type): PNode =
@@ -240,6 +240,7 @@ proc generateAssign(generator: var Generator, node: Node): PNode =
 
   let name = emitNode(node[0])
   let value = emitNode(node[1])
+  dump dump(node, 0, true)
   case node.declaration:
   of Declaration.Var:
     result = nkVarSection.newTree(nkIdentDefs.newTree(name, emptyNode, value))
@@ -338,6 +339,13 @@ proc generateCall(generator: var Generator, node: Node): PNode =
   if node[0].kind == Variable and node[0].label == "echo":
     result.kind = nkCommand
 
+
+proc generateMacroCall(generator: var Generator, node: Node): PNode =
+  # similar to command
+  result = nkCommand.newTree(emitNode(node[0]))
+  for i, arg in node.children:
+    if i > 0:
+      result.add(emitNode(arg))
 
 proc generateCommand(generator: var Generator, node: Node): PNode =
   result = nkCommand.newTree(emitNode(node[0]))
@@ -486,7 +494,8 @@ proc generateWhile(generator: var Generator, node: Node): PNode =
   result = nkWhileStmt.newTree(emitNode(node[0]), emitNode(node[1]))
 
 proc generatePair(generator: var Generator, node: Node): PNode =
-  result = nkExprEqExpr.newTree(generateIdent(node[0].text), emitNode(node[1]))
+  result = nkExprEqExpr.newTree(generateIdent(node[0].text
+    ), emitNode(node[1]))
 
 proc generateUnaryOp(generator: var Generator, node: Node): PNode =
   result = nkPrefix.newTree(generateIdent(node[0].label), emitNode(node[1]))
@@ -592,6 +601,8 @@ proc generateNode(generator: var Generator, node: Node): PNode =
     result = generator.generateCode(node)
   of Call:
     result = generator.generateCall(node)
+  of MacroCall:
+    result = generator.generateMacroCall(node)
   of Command:
     result = generator.generateCommand(node)
   of Return:
@@ -686,41 +697,42 @@ proc generateNode(generator: var Generator, node: Node): PNode =
   of Continue:
     result = generator.generateContinue(node)
   of Class:
-    result = generator.generateClass(node)
+    result = generator.generateTypeDeclaration(node)
   else:
     log fmt"? {node.kind}"
     result = emptyNode
 
 proc generate*(generator: var Generator, module: Module): string =
   generator.module = module
-  generator.res = newNode(nkStmtList)
+  generator.top = newNode(nkStmtList)
+  generator.types = newNode(nkStmtList)
+  generator.methods = newNode(nkStmtList)
+  generator.global = newNode(nkStmtList)
+  generator.main = newNode(nkStmtList)
 
   if len(module.imports) > 0:
-    generator.res.add(generator.generateImports(module.imports))
+    generator.top.add(generator.generateImports(module.imports))
 
   for t in module.classes:
-    generator.res.add(generator.generateClass(t))
+
+
+    
+    generator.types.add(generator.generateTypeDeclaration(t))
+
+  for b in module.main:
+    if b.kind in {Assign, MacroCall}:
+      generator.global.add(emitNode(b))
+    else:
+      generator.main.add(emitNode(b))
 
   var forward: seq[Node] = @[]
 
-  # for z, function in module.functions:
-  #   # TODO: smart
-  #   if not function.isIterator:
-  #     for index, previous in module.functions:
-  #       if index >= z:
-  #         break
-  #       if isValid(previous.calls) and previous.calls.contains(function.typ.label):
-  #         forward.add(function)
+  
+  let program = nkStmtList.newTree(
+    generator.top,
+    generator.types,
+    generator.global,
+    generator.methods,
+    generator.main)
 
-  # for function in forward:
-  #   generator.res.add(generator.generateForward(function))
-
-  # for function in module.functions:
-  #   generator.res.add(generator.generateFunction(function))
-
-  for b in module.main:
-    generator.res.add(emitNode(b))
-
-  result = generator.res.renderTree({renderDocComments}) & "\n"
-  #if result.startsWith("  "):
-  #  result = result.splitLines().mapIt(if len(it) > 2: it[2..^1] else: it).join("\n")
+  result = program.renderTree({renderDocComments}) & "\n"
