@@ -1,4 +1,24 @@
 
+# rb2nim
+
+```bash
+rb2nim <filename pattern> <folder> <command>
+
+rb2nim case_equality ~/nimterop "bash ~/spec.sh"
+```
+
+where spec.sh is
+```bash
+cd ~/rubocop
+rbenv local 2.5.0
+
+rbenv exec ruby /home/alehander42/.rbenv/versions/2.5.0/bin/rspec ~/rubocop/spec/rubocop/cop/style/case_equality_spec.rb
+```
+
+for example
+
+we also need to require_relative tracing.rb in the right place: this has to be automated more
+
 # rubytracer
 
 Ruby tracing
@@ -11,95 +31,8 @@ Ruby tracing
 
 ## How to use
 
-python-deduckt (also launched with `python-deduckt/deduckt/main.py`) is a drop-in
-replacement for the python interpreter. 
-
-Each traced python execution will update the `python-deduckt.json` file stored in
-the current directory. This file stores an annotated AST for each module imported
-by your program.
-
-```bash
-python-deduckt full path test.py args
-```
-
-## Results
-
-The format is
-
-```python
-{
-    "<pythonName>": {
-        <typeAnnotation>
-    }
-}
-```
-
-Python name
-
-```python
-"<namespaces>.<name>"
-```
-
-name
-
-```python
-"<name>" # const
-"<name>" # class
-"#<name>" # function
-"<class>#<name>" # method
-```
-
-Variables 
-
-```python
-{
-    "name": <name>,
-    "type": <typeAnnotation>
-}
-```
-
-A type annotation can be a class, function description or an atomic type.
-
-
-```python
-{
-    "kind": "PyTypeFunction",
-    "label": <name>,
-    "args": [<variable>],
-    "variables": [<variable>],
-    "returnType": <typeAnnotation>
-}
-```
-
-```python
-{
-    "kind": "PyTypeObject",
-    "label": <name>,
-    "fields": [<variable>]
-}
-```
-
-Full doc: todo
-
-## FAQ
-
-* Can I generate mypy annotations with it?
-
-It's definitely possible to generate very useful mypy annotations from the recorded data.
-However that hasn't been our use case, but contributions are welcome
-
-* Why does it analyze all the events?
-
-In the future we might add an option to trace only a statistically significant part of them.
-It's not a huge priority for our use case, as we used it for [py2nim](https://github.com/metacraft-labs/py2nim).
-A porting task is not something that would be ran often and better type information is more important than speed.
-
-* How to pronounce deduckt?
-
-Like the first part of "deductive", or like getting rid of the duck types in your backyard. 
-
 ## LICENSE
 
 The MIT License (MIT)
 
-Copyright (c) 2017-2018 Zahary Karadjov, Alexander Ivanov
+Copyright (c) 2019 Zahary Karadjov, Alexander Ivanov
