@@ -176,6 +176,7 @@ type
 
   Module* = ref object
     name*: string
+    path*: string
     imports*: seq[Node] # probably Import and Assign
     types*: seq[Node] # probably ClassDef
     classes*: seq[Node] # probably FunctionDef
@@ -590,6 +591,7 @@ proc deepCopy*(a: Node): Node =
     result.args = a.args.mapIt(deepCopy(it))
     result.code = a.code.mapIt(deepCopy(it))
     result.label = a.label
+    result.isMethod = a.isMethod
   else:
     discard
   result.children = @[]
@@ -763,9 +765,10 @@ proc loadClass*(m: JsonNode, traceDB: TraceDB): Node =
   if result.typ.rewritten:
     return nil
 
-proc loadModule*(m: JsonNode, traceDB: TraceDB): Module =
+proc loadModule*(m: JsonNode, traceDB: TraceDB, path: string): Module =
   result = Module()
   result.imports = @[]
+  result.path = path
   result.main = m{"main"}.mapIt(loadNode(it, traceDB))
   result.classes = m{"classes"}.mapIt(loadClass(it, traceDB)).filterIt(not it.isNil)
 
@@ -790,7 +793,7 @@ proc load*(file: string, rewrite: Rewrite): TraceDB =
     if label != "%types":
       if label != "tracing.rb":
         result.paths.add(label)
-        result.modules.add(loadModule(m, result))
+        result.modules.add(loadModule(m, result, label))
     
 
   
@@ -1315,6 +1318,10 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
       node.typ.returnType = class
       node.args = node.args[1 .. ^1]
       node.code = @[call(variable("new"), variable("result"), VoidType)].concat(node.code)
+    # TODO
+    if node.args.len > 0 and node.args[0].label == "self":
+      node.isMethod = true
+
     var met = childEnv(env, node.label, args, node.returnType)
 
     for subNode in node.code:

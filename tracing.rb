@@ -160,7 +160,7 @@ def load_type(arg)
     if !$inter_types[res[:label].to_sym]
       label = res[:label].to_sym
       res[:kind] = :Object
-      res[:fields] = variables
+      res[:fields] = [] # TODO inheritance variables
       $inter_types[label] = res
       if label.to_s.include?('::')
         p label.to_s.split('::')[-1].to_sym

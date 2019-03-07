@@ -702,6 +702,18 @@ proc generateNode(generator: Generator, node: Node): PNode =
     log fmt"? {node.kind}"
     result = emptyNode
 
+var rewriteGenerator = initTable[string, proc(generator: Generator): PNode]()
+rewriteGenerator["cop"] = proc(generator: Generator): PNode =
+  nkStmtList.newTree(
+    generator.top,
+    nkCommand.newTree(
+      generateIdent("cop"),
+      nkStmtList.newTree(
+        generator.types,
+        generator.methods,
+        generator.global,
+        generator.main)))
+
 proc generate*(generator: Generator, module: Module): string =
   generator.module = module
   generator.top = newNode(nkStmtList)
@@ -730,16 +742,23 @@ proc generate*(generator: Generator, module: Module): string =
 
   var forward: seq[Node] = @[]
 
-  
-  let program = nkStmtList.newTree(
-    generator.top,
-    newNode(nkEmpty),
-    generator.types,
-    newNode(nkEmpty),
-    generator.global,
-    newNode(nkEmpty),
-    generator.methods,
-    newNode(nkEmpty),
-    generator.main)
+  var program: PNode
+  for label, function in rewriteGenerator:
+    dump label
+    dump module.path
+    if label in module.path:
+      program = rewriteGenerator[label](generator)
+      break
+  if program.isNil:
+    program = nkStmtList.newTree(
+      generator.top,
+      newNode(nkEmpty),
+      generator.types,
+      newNode(nkEmpty),
+      generator.global,
+      newNode(nkEmpty),
+      generator.methods,
+      newNode(nkEmpty),
+      generator.main)
 
   result = program.renderTree({renderDocComments}) & "\n"
