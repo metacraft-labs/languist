@@ -710,8 +710,8 @@ rewriteGenerator["cop"] = proc(generator: Generator): PNode =
       generateIdent("cop"),
       nkStmtList.newTree(
         generator.types,
-        generator.methods,
         generator.global,
+        generator.methods,
         generator.main)))
 
 proc generate*(generator: Generator, module: Module): string =

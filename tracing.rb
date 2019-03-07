@@ -9,6 +9,8 @@ $inter_traces = {}
 $inter_types = {}
 $call_lines = []
 $current_block = ""
+$name_pattern = ENV["RB2NIM_FILENAME"]
+$target_folder = ENV["RB2NIM_TARGET_FOLDER"]
 
 def trace_calls(data)
   $call_lines.push(data.lineno)
@@ -32,7 +34,7 @@ def trace_calls(data)
 end
 
 $t = TracePoint.new(:call, :c_call, :b_call) do |tp|
-  if tp.method_id != :method_added && tp.path.include?("rubocop") && tp.path.include?("case_equality")
+  if tp.method_id != :method_added && tp.path.include?("rubocop") && tp.path.include?($name_pattern)
     a = 0
   else
     next
@@ -55,7 +57,7 @@ end
      #!tp.path.include?("core_ext")
     
 $t2 = TracePoint.new(:return, :c_return, :b_return) do |tp|
-  if tp.method_id != :method_added && tp.path.include?("rubocop") && tp.path.include?("case_equality")
+  if tp.method_id != :method_added && tp.path.include?("rubocop") && tp.path.include?($name_pattern)
     p tp    
   else
     next
@@ -616,7 +618,7 @@ end
 def generate
   compile $inter_traces
 
-  File.write("lang_traces.json", JSON.pretty_generate($inter_traces))
+  File.write($target_folder + "/lang_traces.json", JSON.pretty_generate($inter_traces))
 end
 
 $t.enable

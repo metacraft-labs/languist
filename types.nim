@@ -95,6 +95,7 @@ type
     projectDir*:  string
     package*:     string
     rewrite*:     Rewrite
+    targetFolder*: string
   
   Env* = ref object
     types*:       Table[string, Type]
@@ -772,12 +773,13 @@ proc loadModule*(m: JsonNode, traceDB: TraceDB, path: string): Module =
   result.main = m{"main"}.mapIt(loadNode(it, traceDB))
   result.classes = m{"classes"}.mapIt(loadClass(it, traceDB)).filterIt(not it.isNil)
 
-proc load*(file: string, rewrite: Rewrite): TraceDB =
+proc load*(file: string, rewrite: Rewrite, targetFolder: string): TraceDB =
   new(result)
   result.root = parseJson(readFile(file))
   result.types = initTable[string, Type]()
   result.sysPath = @[]
   result.paths = @[]
+  result.targetFolder = targetFolder
   result.modules = @[]
   result.rewrite = rewrite
   # result.projectDir = result.root{"@projectDir"}.getStr()
@@ -1234,7 +1236,7 @@ do:
     dump rewrites[1].genBlock
     res
 
-var rewriteinputruby = rewriteList
+var rewriteinputruby* = rewriteList
 rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[])
 
 static:
@@ -1408,7 +1410,6 @@ proc analyzeCode(traceDB: TraceDB, env: Env) =
     input.analyze(env)
 
 
-var traceDB = load(if paramCount() == 0: "lang_traces.json" else: paramStr(1), rewriteinputruby)
 
 
 
@@ -1441,14 +1442,14 @@ include generator
 proc generateCode(traceDB: TraceDB) =
   for i, input in traceDB.modules:
     let path = traceDB.paths[i]
-    let newPath = path.changeFileExt("nim")
+    let newPath = traceDB.targetFolder / path.changeFileExt("nim").splitFile[1] & ".nim"
     var generator = Generator(indent: 2, v: V019, module: Module(), identifierCollisions: initSet[string]())
     var output = generator.generate(input)
     writeFile(newPath, output)
     echo &"write {newPath}"
 
 
-proc compile(traceDB: TraceDB) =
+proc compile*(traceDB: TraceDB) =
   var env = Env(parent: nil, types: initTable[string, Type]())
   analyzeCode(traceDB, env)
 
@@ -1457,4 +1458,6 @@ proc compile(traceDB: TraceDB) =
 
   traceDB.generateCode 
 
-compile(traceDB)
+#var traceDB = load(if paramCount() == 0: "lang_traces.json" else: paramStr(1), rewriteinputruby)
+
+#compile(traceDB)

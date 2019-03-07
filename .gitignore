@@ -4,3 +4,5 @@ __pycache__/
 *.json
 
 python-deduckt.json
+types
+rb2nim
