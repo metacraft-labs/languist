@@ -4,7 +4,7 @@
 Download https://gitlab.com/metacraft-labs/rubocop
 install rbenv or ruby in some other way: you might need to change your commands
 
-Download https://gitlab.com/metacraft-labs/nimterop : fast-rubocop
+Download https://gitlab.com/metacraft-labs/fast-rubocop
 
 ```bash
 rb2nim <filename pattern> <folder> <command>
