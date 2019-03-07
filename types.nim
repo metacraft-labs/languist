@@ -1458,6 +1458,6 @@ proc compile*(traceDB: TraceDB) =
 
   traceDB.generateCode 
 
-#var traceDB = load(if paramCount() == 0: "lang_traces.json" else: paramStr(1), rewriteinputruby)
+#var traceDB = load(if paramCount() == 0: "lang_traces.json" else: paramStr(1), rewriteinputruby, "/home/alehander42/nimterop/")
 
 #compile(traceDB)
