@@ -381,8 +381,9 @@ proc generateStr(generator: Generator, node: Node): PNode =
   result.strVal = node.text
 
 proc generateDocstring(generator: Generator, node: Node): PNode =
-  result = nkStrLit.newNode()
+  result = nkTripleStrLit.newNode()
   result.strVal = node.text
+  dump result.strVal
 
 let SYMBOLS* = {
   PyAdd: "+",
@@ -578,10 +579,11 @@ proc homogeneous(node: Node): bool =
 
 proc generateNode(generator: Generator, node: Node): PNode =
   # TODO: macro
-  log fmt"generate {node.kind}"
+  # log fmt"generate {node.kind}"
   if node.isNil:
     result = nilNode
     return
+  dump node.kind
   case node.kind:
   of Assign:
     result = generator.generateAssign(node)
@@ -703,7 +705,7 @@ proc generateNode(generator: Generator, node: Node): PNode =
     result = emptyNode
 
 var rewriteGenerator = initTable[string, proc(generator: Generator): PNode]()
-rewriteGenerator["cop"] = proc(generator: Generator): PNode =
+rewriteGenerator["lib/rubocop/cop"] = proc(generator: Generator): PNode =
   nkStmtList.newTree(
     generator.top,
     nkCommand.newTree(
@@ -713,6 +715,19 @@ rewriteGenerator["cop"] = proc(generator: Generator): PNode =
         generator.global,
         generator.methods,
         generator.main)))
+
+rewriteGenerator["spec/rubocop/cop"] = proc(generator: Generator): PNode =
+  let name = generator.module.path.splitFile[1].split("_spec")[0]
+  generator.top.add(nkImportStmt.newTree(
+    generateDirectIdent(name),
+    generateDirectIdent("test_tools")))
+
+  nkStmtList.newTree(
+    generator.top,
+    generator.types,
+    generator.global,
+    generator.methods,
+    generator.main)
 
 proc generate*(generator: Generator, module: Module): string =
   generator.module = module

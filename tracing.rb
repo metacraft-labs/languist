@@ -367,7 +367,7 @@ class InterTranslator
   end
 
   def process_dstr(node)
-    {kind: :Docstring, text: node.children[0]}
+    {kind: :Docstring, text: node.children.map { |it| p it; '' }.join }
   end
 
   def process_sym(node)

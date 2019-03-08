@@ -24,7 +24,7 @@ rbenv exec ruby /home/alehander42/.rbenv/versions/2.5.0/bin/rspec ~/rubocop/spec
 
 we also need to require_relative tracing.rb in the right place: this has to be automated more, but for now it's in cop.rb in your repo.
 
-now you can see `~/fast-rubocop` and e.g. compile and run `~/fast-rubocop/nimcop.nim` with a ruby file as arg
+now you can see `~/fast-rubocop` and e.g. compile and run `~/fast-rubocop/checker.nim` with a ruby file as arg
 
 # rubytracer
 
