@@ -26,17 +26,22 @@ we also need to require_relative tracing.rb in the right place: this has to be a
 
 now you can see `~/fast-rubocop` and e.g. compile and run `~/fast-rubocop/checker.nim` with a ruby file as arg
 
+you can also use langcop
+
+```bash
+# specially for rubocop <name> <category>
+./langcop block_length metrics 
+```
+
 # rubytracer
 
-Ruby tracing
+Ruby tracing: we will have this as a lib and as a binary
 
 ## example
 
 ```json
 {"A.b":{"kind":"method","args":[{"kind":"simple","label":"Integer"}],"return_type":{"kind":"simple","label":"NilClass"}},"Love.b":{"kind":"method","args":[{"kind":"simple","label":"String"}],"return_type":{"kind":"simple","label":"NilClass"}}}
 ```
-
-## How to use
 
 ## LICENSE
 
