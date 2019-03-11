@@ -109,7 +109,7 @@ type
   NodeKind* = enum
     Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, Table, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, Slice, ForIn, Docstring, Command, MacroCall,
     
-    RubyConst, RubyMasgn, RubyMlhs, RubySplat,
+    RubyConst, RubyMasgn, RubyMlhs, RubySplat, RubyIRange,
     PyAST, PyAdd, PyAnd, PyAnnAssign, PyAssert, PyAssign, PyAsyncFor, PyAsyncFunctionDef, PyAsyncWith, PyAttribute,
     PyAugAssign, PyAugLoad, PyAugStore, PyAwait, PyBinOp, PyBitAnd, PyBitOr, PyBitXor, PyBoolOp, PyBreak, PyBytes,
     PyCall, PyClassDef, PyCompare, PyConstant, PyContinue, PyDel, PyDelete, PyDict,
@@ -1275,34 +1275,15 @@ rewrites = @[rewriteinputruby, rewritenim]
 
 var A = Type(kind: T.Object, label: "A", fields: initTable[string, Type]())
 
-
-# var inputClas = Node(
-#   kind: Class,
-#   label: "A",
-#   docstring: @[],
-#   fields: @[],
-#   methods: @[
-#     Field(
-#       label: "b",
-#       node: Node(
-#         kind: NodeMethod,
-#         label: "b",
-#         typ: Type(kind: T.Method, args: @[A, IntType], returnType: VoidType),
-#         # (arg) # self int
-#         args: @[
-#           input_variable("self"),
-#           input_variable("arg", IntType)
-#         ],
-#         # puts arg.positive?
-#         code: @[
-#           input_call(
-#             input_variable("puts"),
-#             @[
-#               input_send(
-#                 input_variable("arg"),
-#                 "positive?",
-#                 BoolType)])]))],
-#   typ: A)
+proc toBool(node: Node): Node =
+  if node.typ == IntType:
+    let child = node
+    result = compare(operator("!="), child, 0, BoolType)
+  elif node.typ == StringType:
+    let child = node.children[0]
+    result = call(variable("not_empty"), child, BoolType)
+  else:
+    result = node
 
 proc analyze(node: Node, env: Env, class: Type = nil) =
   case node.kind:
@@ -1383,12 +1364,7 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
       node.typ = tableType(node.children[0][0].typ, node.children[0][1].typ)
   of While:
     analyze(node.children[0], env)
-    if node.children[0].typ == IntType:
-      let child = node.children[0]
-      node.children[0] = compare(operator("!="), child, 0, BoolType)
-    elif node.children[0].typ == StringType:
-      let child = node.children[0]
-      node.children[0] = call(variable("not_empty"), child, BoolType)
+    node.children[0] = toBool(node.children[0])
     for child in node.children[1 .. ^1]:
       analyze(child, env)
   of Attribute:
@@ -1400,6 +1376,14 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
       node.typ = VoidType
   of Self:
     node.typ = env["self"]
+  of BinOp:
+    for child in node.children[1 .. ^1]:
+      analyze(child, env)
+    if node.children[0].label == "and":
+      node.typ = BoolType
+    if node.typ == BoolType:
+      node.children[1] = toBool(node.children[1])
+      node.children[2] = toBool(node.children[2])
   else:
     for child in node.children:
       analyze(child, env)
