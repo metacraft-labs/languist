@@ -1,4 +1,4 @@
-import types, os, strformat
+import types, compiler, os, strformat
 
 # rb2nim <filename pattern> <target_folder>
 if paramCount() < 3:

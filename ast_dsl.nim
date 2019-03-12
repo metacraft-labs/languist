@@ -1,3 +1,5 @@
+import types, macros, strutils, sequtils
+
 template pyNone*: untyped =
   Node(kind: PyNone)
 
@@ -26,9 +28,6 @@ proc expandLiteral(node: var NimNode): NimNode =
       var c = child
       result[z] = c.expandLiteral()
       z += 1
-
-macro pyLambda*(args: seq[untyped], argTypes: seq[untyped], a: seq[untyped]): untyped =
-  nil
 
 template raw*(label: untyped): untyped =
   Node(kind: Raw, label: `label`)

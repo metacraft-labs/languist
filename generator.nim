@@ -1,3 +1,7 @@
+import sequtils, strutils, strformat, tables, sugar, hashes, gen_kind, sets, json, macros, terminal, helpers, os, types
+import
+  compiler/[ast, astalgo, idents, msgs, renderer, lineinfos]
+
 template log(a: string) =
   if helpers.debug:
     styledWriteLine(stdout, fgBlue, a, resetStyle)
@@ -642,7 +646,7 @@ proc generateNode(generator: Generator, node: Node): PNode =
       result = generator.generateTuple(node)
   of NimRangeLess:
     result = generator.generateRangeLess(node)
-  of Table:
+  of NimTable:
     result = generator.generateTable(node)
   of While:
     result = generator.generateWhile(node)
@@ -680,19 +684,9 @@ proc generateNode(generator: Generator, node: Node): PNode =
     result = generator.generatePrefix(node)
   of Import:
     result = generator.generateImport(node)
-#  of PyIndex:
- #   result = generator.generateIndex(node)
   of PyAugAssign:
     result = generator.generateAugAssign(node)
-  # of PyAdd:
-  #   result = generator.generateOp(node)
-  # of PySub:
-  #   result = generator.generateOp(node)
-  # of PyMult:
-  #   result = generator.generateOp(node)
-  # of PyFloorDiv:
-  #   result = generator.generateOp(node)
-  of Slice:
+  of NimSlice:
     result = generator.generateSlice(node)
   of NimCommentedOut:
     result = generator.generateCommentedOut(node)
