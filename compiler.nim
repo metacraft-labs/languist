@@ -821,9 +821,12 @@ proc generateCode(traceDB: TraceDB) =
 
 proc compile*(traceDB: TraceDB) =
   var env = Env(parent: nil, types: initTable[string, Type]())
+  # assign type names
   analyzeCode(traceDB, env)
 
+  # rewrite ruby code
   rewriteCode(traceDB, rewriteinputruby)
+  # rewrite nim code
   rewriteCode(traceDB, rewritenim)
 
   traceDB.generateCode 

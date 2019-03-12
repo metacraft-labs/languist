@@ -732,7 +732,8 @@ proc generate*(generator: Generator, module: Module): string =
   generator.main = newNode(nkStmtList)
 
   # TODO rewrite import system
-  generator.top.add(generator.generateImport(Node(kind: Code, children: @[variable("types")])))
+  if "rubocop" in module.path:
+    generator.top.add(generator.generateImport(Node(kind: Code, children: @[variable("types")])))
 
   if len(module.imports) > 0:
     generator.top.add(generator.generateImports(module.imports))

@@ -11,6 +11,7 @@ $call_lines = []
 $current_block = ""
 $name_pattern = ENV["RB2NIM_FILENAME"]
 $target_folder = ENV["RB2NIM_TARGET_FOLDER"]
+$run_ruby = ENV["RB2NIM_RUN_RUBY"]
 
 def trace_calls(data)
   $call_lines.push(data.lineno)
@@ -34,7 +35,7 @@ def trace_calls(data)
 end
 
 $t = TracePoint.new(:call, :c_call, :b_call) do |tp|
-  if tp.method_id != :method_added && tp.path.include?("rubocop") && tp.path.include?($name_pattern)
+  if tp.method_id != :method_added && ($run_ruby || tp.path.include?("rubocop")) && tp.path.include?($name_pattern)
     a = 0
   else
     next
@@ -57,7 +58,7 @@ end
      #!tp.path.include?("core_ext")
     
 $t2 = TracePoint.new(:return, :c_return, :b_return) do |tp|
-  if tp.method_id != :method_added && tp.path.include?("rubocop") && tp.path.include?($name_pattern)
+  if tp.method_id != :method_added && ($run_ruby || tp.path.include?("rubocop")) && tp.path.include?($name_pattern)
     p tp    
   else
     next
@@ -249,7 +250,7 @@ INTER_VARIABLE = 3
 
 PATTERN_STDLIB = {puts: -> a { {kind: INTER_CALL, children: [{kind: INTER_VARIABLE, label: "echo"}] + a , typ: {kind: :Nil} } } }
 
-KINDS = {lvasgn: :Assign, array: :Sequence, hash: :Table, begin: :Code, dstr: :Docstring}
+KINDS = {lvasgn: :Assign, array: :Sequence, hash: :Table, begin: :Code, dstr: :Docstring, return: :Return}
 
 class InterTranslator
   def initialize(ast)
@@ -373,7 +374,15 @@ class InterTranslator
   def process_sym(node)
     {kind: :Symbol, text: node.children[0]}
   end  
-  
+    
+  def process_and(node)
+    {kind: :BinOp, children: [{kind: :Operator, label: "and"}, process_node(node.children[0]), process_node(node.children[1])]}
+  end
+
+  def process_or(node)
+    {kind: :BinOp, children: [{kind: :Operator, label: "or"}, process_node(node.children[0]), process_node(node.children[1])]}
+  end
+
   def process_ivar(node)
     {kind: :Attribute, children: [{kind: :Self}, {kind: :String, text: node.children[0][1 .. -1]}]}
   end
@@ -624,8 +633,12 @@ end
 $t.enable
 $t2.enable
 
-# begin
-#   Kernel.load ARGV.first
+if $run_ruby
+  begin
+    Kernel.load ARGV.first
+  end
+end
+
 # rescue => e
 #   puts e
 #   raise e
