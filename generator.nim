@@ -734,7 +734,8 @@ proc generate*(generator: Generator, module: Module): string =
   # TODO rewrite import system
   if "rubocop" in module.path:
     generator.top.add(generator.generateImport(Node(kind: Code, children: @[variable("types")])))
-
+  else:
+    generator.top.add(generator.generateImport(Node(kind: Code, children: @[variable("ruby")])))
   if len(module.imports) > 0:
     generator.top.add(generator.generateImports(module.imports))
 

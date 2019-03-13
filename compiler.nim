@@ -555,6 +555,7 @@ rewrite do (x: Any):
 do -> String:
   echo(x)
 
+
 rewrite do (x: Any):
   x.to_s()
 do -> String:

@@ -9,3 +9,7 @@ rb2nim
 ast_dsl
 compiler
 langcop
+test/nim
+test/ruby
+test/loop
+test/map
