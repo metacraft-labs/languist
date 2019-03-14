@@ -45,7 +45,7 @@ else:
   targetFolder = expandFilename(paramStr(2))
   command = paramStr(3)
 echo &"env RB2NIM_FILENAME={filename} RB2NIM_TARGET_FOLDER={targetFolder} {command}"
-discard execShellCmd(&"env RB2NIM_FILENAME={filename} RB2NIM_TARGET_FOLDER={targetFolder} RB2NIM_RUN_RUBY=true {command}")
+discard execShellCmd(&"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTDIR={targetFolder} {command}")
 
 var traceDB = load(targetFolder / "lang_traces.json", rewriteinputruby, targetFolder)
 
