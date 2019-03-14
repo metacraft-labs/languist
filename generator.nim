@@ -146,16 +146,19 @@ proc generateArgs(generator: Generator, nodes: seq[Node], typ: Type): PNode
 proc generateForward(generator: Generator, function: Node): PNode =
   assert function.kind in {NodeMethod, Block}
 
-  echo function.typ.isNil
+  eecho function.typ.isNil
   let args = generator.generateArgs(function.args, function.typ)
 
   var name = generateIdent(function.label)
   name = nkPostfix.newTree(
       generateIdent("*"),
       name)
+
   if function.typ.kind == T.Method:
     var genericArgs: seq[string] = @[]
     for arg in function.typ.args:
+      if arg.isNil:
+        continue
       case arg.kind:
       of T.Generic:
         for label in arg.genericArgs:
@@ -244,7 +247,7 @@ proc generateAssign(generator: Generator, node: Node): PNode =
 
   let name = emitNode(node[0])
   let value = emitNode(node[1])
-  dump dump(node, 0, true)
+  edump dump(node, 0, true)
   case node.declaration:
   of Declaration.Var:
     result = nkVarSection.newTree(nkIdentDefs.newTree(name, emptyNode, value))
@@ -387,7 +390,7 @@ proc generateStr(generator: Generator, node: Node): PNode =
 proc generateDocstring(generator: Generator, node: Node): PNode =
   result = nkTripleStrLit.newNode()
   result.strVal = node.text
-  dump result.strVal
+  edump result.strVal
 
 let SYMBOLS* = {
   PyAdd: "+",
@@ -587,7 +590,7 @@ proc generateNode(generator: Generator, node: Node): PNode =
   if node.isNil:
     result = nilNode
     return
-  dump node.kind
+  edump node.kind
   case node.kind:
   of Assign:
     result = generator.generateAssign(node)
@@ -755,8 +758,8 @@ proc generate*(generator: Generator, module: Module): string =
 
   var program: PNode
   for label, function in rewriteGenerator:
-    dump label
-    dump module.path
+    edump label
+    edump module.path
     if label in module.path:
       program = rewriteGenerator[label](generator)
       break

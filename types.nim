@@ -218,6 +218,16 @@ type
 
 let endl* = "\n"
 
+var debug* = true
+
+template eecho*(a: untyped): untyped =
+  if debug:
+    echo a
+
+template edump*(a: untyped): untyped =
+  if debug:
+    dump a
+
 proc simpleType*(label: string): Type =
   Type(kind: T.Simple, label: label)
 
@@ -455,7 +465,7 @@ proc dump*(node: Node, depth: int, typ: bool = false): string =
       $node.kind & "($1)$2" % [node.text, typDump]
     of NodeMethod, Block:
       if node.typ.isNil:
-        echo "BLOCK NIL"
+        eecho "BLOCK NIL"
       $node.kind & "($1)\n$2\n$3" % [node.label, node.args.mapIt(dump(it, 0, typ)).join(" "), node.code.mapIt(dump(it, depth + 1, typ)).join("\n")]
     of Class:
       "Class($1, $2)\n$3" % [node.label, dump(node.typ.base, 0), node.methods.mapIt(dump(it.node, depth + 1, typ)).join(" ")]

@@ -2,7 +2,7 @@ import types, macros, strformat, strutils, sequtils, ast_dsl, tables, json, gen_
 
 proc rewriteType*(traceDB: TraceDB, label: string, typ: Type): Type =
   result = typ
-  echo &"TYP {label}"
+  eecho &"TYP {label}"
   if traceDB.rewrite.types.len != 0:
     # first we check exact label and then the closest submatches 
     # e.g. A::B::C , A::B::*, A::*
@@ -12,7 +12,7 @@ proc rewriteType*(traceDB: TraceDB, label: string, typ: Type): Type =
 
     for i in countdown(tokens.len - 2, 0):
       let subLabel = tokens[0 .. i].join("::") & "::*"
-      echo &"FIND {subLabel}"
+      eecho &"FIND {subLabel}"
       if traceDB.rewrite.types.hasKey(subLabel):
         return traceDB.rewrite.types[subLabel]
 
@@ -126,8 +126,8 @@ proc loadMethod*(m: JsonNode, traceDB: TraceDB, isBlock: bool = false): Node =
   if result.typ.isNil:
     var args = result.args.mapIt(it.typ)
     result.typ = Type(kind: T.Method, args: args, returnType: result.returnType)
-    echo "BLOCK"
-    echo result.typ
+    eecho "BLOCK"
+    eecho result.typ
 
 proc loadClass*(m: JsonNode, traceDB: TraceDB): Node =
   result = Node(kind: Class)
@@ -135,13 +135,15 @@ proc loadClass*(m: JsonNode, traceDB: TraceDB): Node =
   result.fields = m{"fields"}.mapIt(Field(label: it{"label"}.getStr(), node: it{"node"}.loadNode(traceDB)))
   result.methods = m{"methods"}.mapIt(Field(label: it{"label"}.getStr(), node: it{"node"}.loadMethod(traceDB)))
   var typ = loadType(m{"typ"}, traceDB)
-  dump result.label
-  dump dump(typ, 0)
+  edump result.label
+  edump dump(typ, 0)
   if typ.isNil or typ.kind notin {Simple, Object}:
     # TODO
     result.typ = Type(kind: T.Object, fields: initTable[string, Type]())
-  else:
+  elif traceDB.types.hasKey(typ.label):
     result.typ = traceDB.types[typ.label]
+  else:
+    result.typ = typ
   if result.typ.rewritten:
     return nil
 
@@ -204,8 +206,8 @@ proc accepts(l: Type, r: Type): bool =
 
 proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): bool =
   if l.kind == BinOp and r.kind == BinOp:
-    dump dump(l, 0, true)
-    dump dump(r, 0, true)
+    edump dump(l, 0, true)
+    edump dump(r, 0, true)
   if l.kind == Variable:
     var replace = false
     for member in replaced:
@@ -213,8 +215,8 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
         replace = true
         break
     if replace:
-      dump l.typ
-      dump dump(r, 0, true)
+      edump l.typ
+      edump dump(r, 0, true)
       if not l.typ.isNil and not l.typ.accepts(r.typ):
         return false
       else:
@@ -246,13 +248,13 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
   if l.children.len != r.children.len:
     return false
   for i in 0 .. < l.children.len:
-    dump i
+    edump i
     if not l.children[i].find(r.children[i], replaced):
-      dump i
+      edump i
       return false
   result = true
   if l.kind == BinOp and r.kind == BinOp:
-    dump result
+    edump result
   
 proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
   result = @[]
@@ -620,7 +622,7 @@ rewrite do (x: String, y: String):
 do:
   code:
     var res = Node(kind: MacroCall, children: @[variable("nodeMatcher"), variableGenBlock(args["x"].text), args["y"]], typ: VoidType)
-    dump rewrites[1].genBlock
+    edump rewrites[1].genBlock
     res
 
 var rewriteinputruby* = rewriteList
@@ -707,7 +709,7 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
       analyze(arg, env)
   of Variable:
     if node.label.endsWith("?") and node.label.len > 1:
-      echo node.label
+      eecho node.label
       node.label = "is_" & node.label[0 .. ^2]
     node.typ = env.get(node.label)
   of RubyConst:
@@ -774,7 +776,7 @@ proc analyze(m: Module, env: Env) =
 
 proc analyzeCode(traceDB: TraceDB, env: Env) =
   for input in traceDB.modules:
-    dump dump(input, 0, true)
+    edump dump(input, 0, true)
     for child in input.classes:
       env[child.label] = child.typ
   for input in traceDB.modules:
@@ -817,7 +819,7 @@ proc generateCode(traceDB: TraceDB) =
     var generator = Generator(indent: 2, v: V019, module: Module(), identifierCollisions: initSet[string]())
     var output = generator.generate(input)
     writeFile(newPath, output)
-    echo &"write {newPath}"
+    eecho &"write {newPath}"
 
 
 proc compile*(traceDB: TraceDB) =

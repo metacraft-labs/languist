@@ -1,6 +1,6 @@
 value = 2
 if value == 2
-  puts value
+  p value
 else
-  puts 0
+  p 0
 end

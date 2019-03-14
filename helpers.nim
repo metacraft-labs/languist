@@ -17,6 +17,7 @@ proc fail*(a: Textable) =
 proc success*(a: Textable) =
   styledWriteLine(stdout, fgGreen, a, resetStyle)
 
+
 proc findSource*(path: string, line: int, column: int, text: string): string =
   # echo path, line, column
   if line < 1 or column < 0:

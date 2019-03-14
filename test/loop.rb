@@ -1,4 +1,4 @@
 10.times do |l|
-  puts l
+  p l
 end
 

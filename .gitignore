@@ -11,5 +11,8 @@ compiler
 langcop
 test/nim
 test/ruby
+test/each
 test/loop
 test/map
+test/class
+test/if

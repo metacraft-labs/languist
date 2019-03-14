@@ -163,7 +163,12 @@ def load_type(arg)
     if !$inter_types[res[:label].to_sym]
       label = res[:label].to_sym
       res[:kind] = :Object
-      res[:fields] = [] # TODO inheritance variables
+      if $target_folder != "test"
+        res[:fields] = [] # TODO inheritance variables
+      else
+        res[:fields] = variables
+      end
+       # TODO inheritance variables
       $inter_types[label] = res
       if label.to_s.include?('::')
         p label.to_s.split('::')[-1].to_sym
@@ -250,7 +255,7 @@ INTER_VARIABLE = 3
 
 PATTERN_STDLIB = {puts: -> a { {kind: INTER_CALL, children: [{kind: INTER_VARIABLE, label: "echo"}] + a , typ: {kind: :Nil} } } }
 
-KINDS = {lvasgn: :Assign, array: :Sequence, hash: :Table, begin: :Code, dstr: :Docstring, return: :Return}
+KINDS = {lvasgn: :Assign, array: :Sequence, hash: :NimTable, begin: :Code, dstr: :Docstring, return: :Return}
 
 class InterTranslator
   def initialize(ast)
@@ -593,8 +598,8 @@ def compile traces
 
     file[:classes] = file[:classes].map do |klass|
       parent = klass[:children][1]
-      if parent.nil?
-        parent = {kind: :Nil}
+      if parent.nil? || parent[:kind] == :Nil
+        parent = {kind: :Simple, label: :Void}
       elsif parent[:kind] == :RubyConst
         parent = {kind: :Simple, label: parent[:label]}
       end
