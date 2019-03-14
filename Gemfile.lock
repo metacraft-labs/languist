@@ -1,0 +1,23 @@
+GIT
+  remote: $HOME/ruby-deduckt
+  revision: 324f04e39d48c7f9f3af5cd3883d55b3fd1b269c
+  branch: master
+  specs:
+    deduckt (0.1.0)
+      parser
+
+GEM
+  remote: https://rubygems.org/
+  specs:
+    ast (2.4.0)
+    parser (2.6.0.0)
+      ast (~> 2.4.0)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  deduckt!
+
+BUNDLED WITH
+   2.0.1

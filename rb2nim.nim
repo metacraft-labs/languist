@@ -22,10 +22,10 @@ if paramCount() == 1:
         if filename in @["class", "love"]:
           continue
         echo file.path
-        command = &"ruby tracing.rb test/{filename}.rb"
+        let deduckt_exe = getHomedir() / "ruby-deduckt" / "exe" / "ruby-deduckt"
+        command = &"ruby {deduckt_exe} -m {filename} -o {targetFolder} test/{filename}.rb"
         debug = false
-        # echo &"env RB2NIM_FILENAME={filename} RB2NIM_TARGET_FOLDER={targetFolder} {command}"
-        discard execShellCmd(&"env RB2NIM_FILENAME={filename} RB2NIM_TARGET_FOLDER={targetFolder} RB2NIM_RUN_RUBY=true {command} > /dev/null 2>&1")
+        discard execShellCmd(&"{command} > /dev/null 2>&1")
         var traceDB = load(targetFolder / "lang_traces.json", rewriteinputruby, targetFolder)
         compile(traceDB)
         discard execShellCmd(&"nim c test/{filename}.nim > /dev/null 2>&1")

@@ -163,6 +163,7 @@ def load_type(arg)
     if !$inter_types[res[:label].to_sym]
       label = res[:label].to_sym
       res[:kind] = :Object
+      res[:fields] = []
       if $target_folder != "test"
         res[:fields] = [] # TODO inheritance variables
       else
