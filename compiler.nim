@@ -552,103 +552,14 @@ macro rewrite*(input: untyped, output: untyped): untyped =
   dump result.repr
 
 
-rewrite do (x: Any):
-  puts x
-do -> String:
-  echo(x)
+include ruby_rewrite
 
-
-rewrite do (x: Any):
-  x.to_s()
-do -> String:
-  $x
-  
-rewrite do (x: String, y: String):
-  x + y
-do -> String:
-  x & y
-
-rewrite do (x: Int, y: Method):
-  x.times(y)
-do:
-  code:
-    forrange(args["y"].args[0], 0, args["x"], Node(kind: Code, children: args["y"].code))
-
-# FAITH
-rewrite do (x: Table, y: Method):
-  x.each(y)
-do:
-  code:
-    if args["y"].args.len == 1:
-      forin(args["y"].args[0], args["x"], Node(kind: Code, children: args["y"].code))
-    else:
-      forin(args["y"].args[0], args["y"].args[1], args["x"], Node(kind: Code, children: args["y"].code)) 
-      # TODO matching more exact , but it doesnt really matter for now
-  
-  dependencies: @["tables"]
-
-rewrite do (x: Sequence, y: Method):
-  x.each(y)
-do:
-  code:
-    forin(args["y"].args[0], args["x"], Node(kind: Block, children: args["y"].code))
-
-var suiteLabel = ""
-
-rewrite do (x: Any, y: Class, z: Method):
-  x.describe(y, z)
-do:
-  code:
-    suiteLabel = args["y"].label
-    command(variable("suite"), Node(kind: String, text: args["y"].label), Node(kind: Code, children: args["z"].code), VoidType)
-
-rewrite do (x: Any, y: Method):
-  subject(x, y)
-do:
-  code:
-    assign(variable(args["x"].text), Node(kind: Call, children: @[variable(suiteLabel)], typ: Type(kind: T.Simple, label: suiteLabel)), Var)
-
-
-rewrite "RuboCop::AST::*", Type(kind: T.Simple, label: "Node")
-
-rewrite do (a: String, b: Method):
-  it(a, b)
-do:
-  code:
-    Node(kind: MacroCall, children: @[variable("test"), args["a"], Node(kind: Code, children: args["b"].code)], typ: VoidType)
-
-rewrite do (x: String, y: String):
-  def_node_matcher(x, y)
-do:
-  code:
-    var res = Node(kind: MacroCall, children: @[variable("nodeMatcher"), variableGenBlock(args["x"].text), args["y"]], typ: VoidType)
-    edump rewrites[1].genBlock
-    res
+include ruby_plugin
 
 var rewriteinputruby* = rewriteList
 rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[])
 
-static:
-  inRuby = false
-
-rewrite do (x: Int):
-  x.is_positive()
-do -> Bool:
-  x > 0
-
-rewrite do (x: Any):
-  echo(x)
-do -> Void:
-  echo(x)
-
-# TODO
-rewrite do (x: Sequence, y: Method):
-  x.map(y)
-do:
-  code:
-    send(args["x"], "mapIt", rewriteIt(args["y"]))
-  dependencies: @["sequtils"]
-
+include nim_rewrite
 
 var rewritenim = rewriteList
 rewrites = @[rewriteinputruby, rewritenim]

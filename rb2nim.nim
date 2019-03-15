@@ -39,13 +39,18 @@ if paramCount() == 1:
         # break # TODO
     quit(0)
   else:
+    let deduckt_exe = getHomedir() / "ruby-deduckt" / "exe" / "ruby-deduckt"
     targetFolder = filename.splitFile()[0]
-    command = &"ruby tracing.rb {filename}"
+    let module_pattern = filename.splitFile()[1]
+    command = &"env DEDUCKT_MODULE_PATTERNS={module_pattern} DEDUCKT_OUTPUT_DIR={targetFolder} bundle exec {deduckt_exe} {filename}"
+    echo command
+    discard execShellCmd(command)
 else:
   targetFolder = expandFilename(paramStr(2))
   command = paramStr(3)
-echo &"env RB2NIM_FILENAME={filename} RB2NIM_TARGET_FOLDER={targetFolder} {command}"
-discard execShellCmd(&"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTDIR={targetFolder} {command}")
+  let deduckt_exe = getHomedir() / "ruby-deduckt" / "exe" / "ruby-deduckt"
+  echo &"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}"
+  discard execShellCmd(&"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}")
 
 var traceDB = load(targetFolder / "lang_traces.json", rewriteinputruby, targetFolder)
 
