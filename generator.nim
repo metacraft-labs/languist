@@ -712,11 +712,9 @@ proc generate*(generator: Generator, module: Module, config: Config): string =
   generator.methods = newNode(nkStmtList)
   generator.global = newNode(nkStmtList)
   generator.main = newNode(nkStmtList)
-  dump config
-  
+
   # mercy!
   for i in config.imports:
-    dump i
     generator.top.add(generator.generateImport(Node(kind: Code, children: @[variable(i)])))
   if len(module.imports) > 0:
     generator.top.add(generator.generateImports(module.imports))

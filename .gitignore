@@ -17,3 +17,7 @@ test/map
 test/class
 test/if
 test/select
+test/all
+test/any
+test/index
+test/modify

@@ -228,7 +228,13 @@ macro call*(f: untyped, arg: untyped, arg2: untyped, typ: untyped): untyped =
 
 macro command*(op: untyped, arg: untyped, code: untyped, t: untyped): untyped =
   result = quote:
-    Node(kind: Command, children: @[`op`, `arg`, `code`], typ:  `t`)
+    Node(kind: Command, children: @[`op`, `arg`, `code`], typ:  `t`, isFinished: true)
+
+macro index*(arg: untyped, b: untyped): untyped =
+  var i = b
+  i = i.expandLiteral()
+  result = quote:
+    Node(kind: Index, children: @[`arg`, `i`], typ: `arg`.typ.args[0], isFinished: true)
 
 template operator*(op: untyped, ignore: untyped = nil): untyped =
   Node(

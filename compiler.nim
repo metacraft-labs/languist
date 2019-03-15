@@ -613,6 +613,8 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
 
   of Send:
     analyze(node.children[0], env)
+    if node.children[1].text.endsWith("?"):
+      node.children[1].text = "is_" & node.children[1].text[0 .. ^2]
     for arg in node.children[2 .. ^1]:
       analyze(arg, env)
   of Call:

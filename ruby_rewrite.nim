@@ -49,3 +49,9 @@ do:
     var res = send(args["x"], "filter", args["y"])
     res.typ = args["x"].typ
     res
+
+rewrite do(x: Sequence):
+  x.first()
+do:
+  code:
+    index(args["x"], 0)
