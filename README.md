@@ -6,11 +6,15 @@ install rbenv or ruby in some other way: you might need to change your commands
 
 Download https://gitlab.com/metacraft-labs/fast-rubocop
 
+Set in env RB2NIM_CONFIG to e.g. `rubocop.json` or `test.json`
 ```bash
 rb2nim <filename pattern> <folder> <command>
 
 rb2nim case_equality ~/fast-rubocop "bash ~/spec.sh"
+or 
+rb2nim test/..
 ```
+But run mostly langcop for now
 
 where spec.sh is e.g. something like 
 
@@ -30,7 +34,7 @@ you can also use langcop
 
 ```bash
 # specially for rubocop <name> <category>
-./langcop block_length metrics 
+./langcop block_length 'metrics rubocop'
 ```
 
 # rubytracer

@@ -1,4 +1,4 @@
-import types, compiler, os, strformat, strutils
+import types, compiler, os, strformat, strutils, json
 
 # rb2nim <filename pattern> <target_folder>
 if paramCount() != 1 and paramCount() != 3:
@@ -10,11 +10,14 @@ var filename = paramStr(1)
 var targetFolder = ""
 var command = ""
 
+
 if paramCount() == 1:
   if filename == "test":
     # all files in test
     # run the single test
     # rewriting the same lang_traces.json
+    var config = parseJson(readFile("test.json")).to(Config)
+
     for file in walkDir("test", true):
       if file.path.endswith(".rb"):
         targetFolder = "test"
@@ -26,7 +29,7 @@ if paramCount() == 1:
         command = &"ruby {deduckt_exe} -m {filename} -o {targetFolder} test/{filename}.rb"
         debug = false
         discard execShellCmd(&"{command} > /dev/null 2>&1")
-        var traceDB = load(targetFolder / "lang_traces.json", rewriteinputruby, targetFolder)
+        var traceDB = load(targetFolder / "lang_traces.json", rewriteinputruby, targetFolder, config)
         compile(traceDB)
         discard execShellCmd(&"nim c test/{filename}.nim > /dev/null 2>&1")
         discard execShellCmd(&"ruby test/{filename}.rb > test/ruby")
@@ -52,6 +55,11 @@ else:
   echo &"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}"
   discard execShellCmd(&"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}")
 
-var traceDB = load(targetFolder / "lang_traces.json", rewriteinputruby, targetFolder)
+let path = getEnv("RB2NIM_CONFIG", "")
+var config = Config(imports: @[], indent: 2, name: "default config")
+if path.len > 0:
+  config = parseJson(readFile(path)).to(Config)
+
+var traceDB = load(targetFolder / "lang_traces.json", rewriteinputruby, targetFolder, config)
 
 compile(traceDB)

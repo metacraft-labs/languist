@@ -96,6 +96,7 @@ type
     package*:     string
     rewrite*:     Rewrite
     targetFolder*: string
+    config*:      Config
   
   Env* = ref object
     types*:       Table[string, Type]
@@ -215,6 +216,11 @@ type
     rules*: seq[RewriteRule]
     types*: Table[string, Type]
     genBlock*: seq[string]
+
+  Config* = object
+    indent*: int
+    imports*: seq[string]
+    name*: string
 
 let endl* = "\n"
 

@@ -154,7 +154,7 @@ proc loadModule*(m: JsonNode, traceDB: TraceDB, path: string): Module =
   result.main = m{"main"}.mapIt(loadNode(it, traceDB))
   result.classes = m{"classes"}.mapIt(loadClass(it, traceDB)).filterIt(not it.isNil)
 
-proc load*(file: string, rewrite: Rewrite, targetFolder: string): TraceDB =
+proc load*(file: string, rewrite: Rewrite, targetFolder: string, config: Config): TraceDB =
   new(result)
   result.root = parseJson(readFile(file))
   result.types = initTable[string, Type]()
@@ -163,6 +163,7 @@ proc load*(file: string, rewrite: Rewrite, targetFolder: string): TraceDB =
   result.targetFolder = targetFolder
   result.modules = @[]
   result.rewrite = rewrite
+  result.config = config
   # result.projectDir = result.root{"@projectDir"}.getStr()
   # result.package = result.projectDir.rsplit("/", 1)[1]
   for label, m in result.root:
@@ -728,7 +729,7 @@ proc generateCode(traceDB: TraceDB) =
     let path = traceDB.paths[i]
     let newPath = traceDB.targetFolder / path.changeFileExt("nim").splitFile[1] & ".nim"
     var generator = Generator(indent: 2, v: V019, module: Module(), identifierCollisions: initSet[string]())
-    var output = generator.generate(input)
+    var output = generator.generate(input, traceDB.config)
     writeFile(newPath, output)
     eecho &"write {newPath}"
 

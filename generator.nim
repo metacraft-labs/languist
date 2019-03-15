@@ -705,19 +705,19 @@ var rewriteGenerator = initTable[string, proc(generator: Generator): PNode]()
 
 include generator_rewrite
 
-proc generate*(generator: Generator, module: Module): string =
+proc generate*(generator: Generator, module: Module, config: Config): string =
   generator.module = module
   generator.top = newNode(nkStmtList)
   generator.types = newNode(nkStmtList)
   generator.methods = newNode(nkStmtList)
   generator.global = newNode(nkStmtList)
   generator.main = newNode(nkStmtList)
-
-  # TODO rewrite import system
-  if "rubocop" in module.path:
-    generator.top.add(generator.generateImport(Node(kind: Code, children: @[variable("types")])))
-  else:
-    generator.top.add(generator.generateImport(Node(kind: Code, children: @[variable("ruby")])))
+  dump config
+  
+  # mercy!
+  for i in config.imports:
+    dump i
+    generator.top.add(generator.generateImport(Node(kind: Code, children: @[variable(i)])))
   if len(module.imports) > 0:
     generator.top.add(generator.generateImports(module.imports))
 
