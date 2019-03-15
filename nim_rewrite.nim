@@ -58,3 +58,25 @@ do:
         send(args["x"], "delete", binop(operator("-"), send(args["x"], "len"), Node(kind: Int, i: 1)), Node(kind: Int, i: 1)),
         variable("tmp")])
   dependencies: @["sequtils"]
+
+rewrite do (a: String):
+  a.lower()
+do:
+  code:
+    send(args["a"], "toLowerAscii")
+  dependencies: @["strutils"]
+
+rewrite do (a: String):
+  a.upper()
+do:
+  code:
+    send(args["a"], "toUpperAscii")
+  dependencies: @["strutils"]
+
+rewrite do (a: String):
+  a.capitalize()
+do:
+  code:
+    send(args["a"], "capitalizeAscii")
+  dependencies: @["strutils"]
+

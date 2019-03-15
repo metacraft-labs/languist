@@ -55,3 +55,19 @@ rewrite do(x: Sequence):
 do:
   code:
     index(args["x"], 0)
+
+rewrite do (a: String):
+  a.downcase()
+do:
+  code:
+    send(args["a"], "lower")
+  dependencies: @["strutils"]
+
+
+
+rewrite do (a: String):
+  a.upcase()
+do:
+  code:
+    send(args["a"], "upper")
+  dependencies: @["strutils"]
