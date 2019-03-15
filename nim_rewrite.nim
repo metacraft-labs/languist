@@ -19,3 +19,10 @@ do:
     send(args["x"], "mapIt", rewriteIt(args["y"]))
   dependencies: @["sequtils"]
 
+rewrite do (x: Sequence, y: Method):
+  x.filter(y)
+do:
+  code:
+    send(args["x"], "filterIt", rewriteIt(args["y"]))
+  dependencies: @["sequtils"]
+

@@ -16,3 +16,4 @@ test/loop
 test/map
 test/class
 test/if
+test/select

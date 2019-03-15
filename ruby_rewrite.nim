@@ -41,3 +41,11 @@ rewrite do (x: Sequence, y: Method):
 do:
   code:
     forin(args["y"].args[0], args["x"], Node(kind: Block, children: args["y"].code))
+
+rewrite do(x: Sequence, y: Method):
+  x.select(y)
+do:
+  code:
+    var res = send(args["x"], "filter", args["y"])
+    res.typ = args["x"].typ
+    res

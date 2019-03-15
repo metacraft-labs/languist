@@ -671,9 +671,9 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
   of BinOp:
     for child in node.children[1 .. ^1]:
       analyze(child, env)
-    if node.children[0].label == "and":
+    if node.children[0].label in @["and", "or", ">", "<", "==", "!=", "&&", "||", ">=", "<="]:
       node.typ = BoolType
-    if node.typ == BoolType:
+    if node.typ == BoolType and node.children[0].label == "and":
       node.children[1] = toBool(node.children[1])
       node.children[2] = toBool(node.children[2])
   else:
