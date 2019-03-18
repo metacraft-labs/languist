@@ -28,10 +28,6 @@ proc loadType*(typ: JsonNode, traceDB: TraceDB): Type =
     for arg in typ{"args"}:
       var variable = loadType(arg, traceDB)
       result.args.add(variable)
-    # for v in typ{"variables"}:
-    #   var variable = PyVariable(name: ($v{"name"})[1..^2])
-    #   variable.typ = importType(v{"type"})
-    #   result.variables.add(variable)
     if typ{"returnType"}.isNil:
       result.returnType = VoidType
     else:
@@ -121,6 +117,7 @@ proc loadMethod*(m: JsonNode, traceDB: TraceDB, isBlock: bool = false): Node =
   result.label = m{"label"}{"label"}.getStr()
   result.args = m{"args"}.mapIt(loadNode(it, traceDB))
   result.code = m{"code"}.mapIt(loadNode(it, traceDB))
+  result.isIterator = m{"isIterator"}.getBool()
   result.typ = loadType(m{"typ"}, traceDB)
   result.returnType = loadType(m{"returnType"}, traceDB)
   if result.typ.isNil:
@@ -298,7 +295,10 @@ proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): Node
   var newNode = node
   if node.kind == Call and node.children[0].kind == Variable and node.children[0].label in rewrites[1].genBlock:
     node.kind = MacroCall # = genKind(Node, MacroCall)
-    node.children[^1] = Node(kind: Code, children: node.children[^1].code)
+    echo dump(node, 0, true)
+    echo dump(node.children[^1], 0, true)
+    if node.children[^1].kind == Block:
+      node.children[^1] = Node(kind: Code, children: node.children[^1].code)
   if b.len > 0:
     var c = b[0]
     for a in b:
@@ -641,8 +641,6 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
     node.typ = StringType
   of Symbol:
     node.typ = SymbolType
-  of PyInt, PyFloat, PyChar, PyHugeInt, PyAssign, PyFunctionDef, PyClassDef, Char, Float:
-    discard
   of New:
     node.typ = Type(kind: T.Simple, label: node.children[0].label)
   of Sequence:

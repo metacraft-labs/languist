@@ -108,23 +108,10 @@ type
     hasYield*:    bool
 
   NodeKind* = enum
-    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, NimTable, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, NimSlice, ForIn, Docstring, Command, MacroCall,
-
-    RubyConst, RubyMasgn, RubyMlhs, RubySplat, RubyIRange,
-    PyAST, PyAdd, PyAnd, PyAnnAssign, PyAssert, PyAssign, PyAsyncFor, PyAsyncFunctionDef, PyAsyncWith, PyAttribute,
-    PyAugAssign, PyAugLoad, PyAugStore, PyAwait, PyBinOp, PyBitAnd, PyBitOr, PyBitXor, PyBoolOp, PyBreak, PyBytes,
-    PyCall, PyClassDef, PyCompare, PyConstant, PyContinue, PyDel, PyDelete, PyDict,
-    PyDictComp, PyDiv, PyEllipsis, PyEq, PyExceptHandler, PyExpr, PyExpression,
-    PyExtSlice, PyFloorDiv, PyFor, PyFormattedValue, PyFunctionDef, PyGeneratorExp, PyGlobal, PyGt, PyGtE,
-    PyIf, PyIfExp, PyImport, PyImportFrom, PyIn, PyIndex, PyInteractive, PyInvert, PyIs, PyIsNot,
-    PyJoinedStr, PyLShift, PyLambda, PyList, PyListComp, PyLoad, PyLt, PyLtE,
-    PyMatMult, PyMod, PyModule, PyMult,
-    PyName, PyLabel, PyNameConstant, PyNodeTransformer, PyNodeVisitor, PyNonlocal, PyNot, PyNotEq, PyNotIn, PyInt, PyFloat, PyNone,
-    PyOr, PyParam, PyPass, PyPow, PyPyCF_ONLY_AST, PyRShift, PyRaise, PyReturn,
-    PySet, PySetComp, PySlice, PyStarred, PyStore, PyStr, PySub, PySubscript, PySuite,
-    PyTry, PyTuple,
-    PyUAdd, PyUSub, PyUnaryOp, PyWhile, PyWith, PyYield, PyYieldFrom, Py_NUM_TYPES, Pyalias, Pyarguments, Pyarg, Pykeyword, Pycomprehension, Pywithitem,
-    PyVarDef, PyChar, PyConstr, NimWhen, PyHugeInt, NimRange, NimRangeLess, NimCommentedOut, NimExprColonExpr, NimInfix, NimAccQuoted, NimOf, NimPrefix, NimIf, NimElif, NimElse, NimTuple
+    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, NimTable, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, NimSlice, ForIn, Docstring, Command, MacroCall, Try, ExceptHandler, Raise,
+    AugOp, ImportFrom,
+    RubyConst, RubyMasgn, RubyMlhs, RubySplat, RubyIRange, RubyRegexp, RubyRegopt,
+    NimWhen, NimRange, NimRangeLess, NimCommentedOut, NimExprColonExpr, NimInfix, NimAccQuoted, NimOf, NimPrefix, NimIf, NimElif, NimElse, NimTuple
 
   Declaration* {.pure.} = enum Existing, Let, Var, Const
 
@@ -147,14 +134,14 @@ type
       f*: float
     of Char:
       c*: char
-    of PyHugeInt:
-      h*: string
+    # of PyHugeInt:
+    #   h*: string
     of Assign:
       declaration*: Declaration
     of Import:
       aliases*: seq[Node]
-    of PyFunctionDef:
-      calls*: HashSet[string]
+    # of PyFunctionDef:
+    #   calls*: HashSet[string]
     of Class:
       fields*: seq[Field]
       methods*: seq[Field]
@@ -463,7 +450,7 @@ proc dump*(node: Node, depth: int, typ: bool = false): string =
   if typDump == "#nil":
     typDump = ""
   var left = case node.kind:
-    of Int, PyInt:
+    of Int:
       "Int($1)$2" % [$node.i, typDump]
     of Variable, Operator, RubyConst:
       $node.kind & "($1)$2" % [node.label, typDump]
@@ -545,8 +532,8 @@ proc `$`*(node: Node): string =
 
 proc notExpr*(node: Node): Node =
   result = node
-  while result.kind == PyExpr:
-    result = result.children[0]
+  # while result.kind == PyExpr:
+  #   result = result.children[0]
 
 # proc testEq*(a: Node, b: Node): bool =
 #   if a.isNil or b.isNil:
@@ -589,8 +576,8 @@ proc deepCopy*(a: Node): Node =
     result.typ = IntType
   of Variable, Operator, RubyConst:
     result.label = a.label
-  of PyHugeInt:
-    result.h = a.h
+  # of PyHugeInt:
+  #   result.h = a.h
   of Char:
     result.c = a.c
   of Assign:

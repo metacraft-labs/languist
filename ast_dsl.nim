@@ -247,7 +247,7 @@ macro compare*(op: untyped, left: untyped, right: untyped, typ: untyped): untype
   (l, r) = (l.expandLiteral(), r.expandLiteral())
   result = quote:
     Node(
-      kind: PyCompare,
+      kind: BinOp,
       children: @[
         `op`,
         `l`,
@@ -280,7 +280,7 @@ macro slice*(startA: untyped, finishA: untyped = nil, stepA: untyped = nil): unt
   (finish, step) = (finish.expandLiteral(), step.expandLiteral())
   result = quote:
     Node(
-      kind: PySlice,
+      kind: Slice,
       children: @[
         `start`,
         `finish`,
@@ -327,31 +327,20 @@ macro forin*(labels: untyped, labels2: untyped, enumerable: untyped, code: untyp
         `code`]),
       isFinished: true)
 
-macro subscript*(sequenceA: untyped, indexA: untyped): untyped =
-  var (sequence, index) = (sequenceA, indexA)
-  (sequence, index) = (sequence.expandLiteral(), index.expandLiteral())
-  result = quote:
-    Node(
-      kind: PySubscript,
-      children: @[
-        `sequence`,
-        `index`],
-      isFinished: true)
+# template add*: untyped =
+#   Node(kind: PyAdd, isFinished: true)
 
-template add*: untyped =
-  Node(kind: PyAdd, isFinished: true)
+# template sub*: untyped =
+#   Node(kind: PySub, isFinished: true)
 
-template sub*: untyped =
-  Node(kind: PySub, isFinished: true)
+# template mult*: untyped =
+#   Node(kind: PyMult, isFinished: true)
 
-template mult*: untyped =
-  Node(kind: PyMult, isFinished: true)
+# template pdiv*: untyped =
+#   Node(kind: PyDiv, isFinished: true)
 
-template pdiv*: untyped =
-  Node(kind: PyDiv, isFinished: true)
+# template eq*: untyped =
+#   Node(kind: PyEq)
 
-template eq*: untyped =
-  Node(kind: PyEq)
-
-template notEq*: untyped =
-  Node(kind: PyNotEq)
+# template notEq*: untyped =
+#   Node(kind: PyNotEq)

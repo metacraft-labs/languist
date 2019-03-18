@@ -364,7 +364,10 @@ proc generateCommand(generator: Generator, node: Node): PNode =
 proc generateReturn(generator: Generator, node: Node): PNode =
   ensure(Return)
 
-  result = nkReturnStmt.newTree(emitNode(node[0]))
+  if node.children.len > 0:
+    result = nkReturnStmt.newTree(emitNode(node[0]))
+  else:
+    result = nkReturnStmt.newTree(emptyNode)
 
 proc generateInt(generator: Generator, node: Node): PNode =
   result = nkIntLit.newNode()
@@ -392,35 +395,35 @@ proc generateDocstring(generator: Generator, node: Node): PNode =
   result.strVal = node.text
   edump result.strVal
 
-let SYMBOLS* = {
-  PyAdd: "+",
-  PySub: "-",
-  PyMult: "*",
-  PyDiv: "/",
-  PyFloorDiv: "//",
-  PyPow: "**",
-  PyEq: "==",
-  PyNotEq: "!=",
-  PyLtE: "<=",
-  PyGtE: ">=",
-  PyGt: ">",
-  PyLt: "<",
-  PyAnd: "and",
-  PyOr: "or",
-  PyNot: "not",
-  PyUSub: "-",
-  PyIs: "is",
-  PyIsNot: "isnot",
-  PyIn: "in",
-  PyNotIn: "notin",
-  PyBitAnd: "and",
-  PyBitOr: "or",
-  PyMod: "mod",
-}.toTable()
+# let SYMBOLS* = {
+#   PyAdd: "+",
+#   PySub: "-",
+#   PyMult: "*",
+#   PyDiv: "/",
+#   PyFloorDiv: "//",
+#   PyPow: "**",
+#   PyEq: "==",
+#   PyNotEq: "!=",
+#   PyLtE: "<=",
+#   PyGtE: ">=",
+#   PyGt: ">",
+#   PyLt: "<",
+#   PyAnd: "and",
+#   PyOr: "or",
+#   PyNot: "not",
+#   PyUSub: "-",
+#   PyIs: "is",
+#   PyIsNot: "isnot",
+#   PyIn: "in",
+#   PyNotIn: "notin",
+#   PyBitAnd: "and",
+#   PyBitOr: "or",
+#   PyMod: "mod",
+# }.toTable()
 
 proc generateOp(generator: Generator, op: Node): PNode =
   # echo op
-  let s = if SYMBOLS.hasKey(op.kind): SYMBOLS[op.kind] else: op.label
+  let s = op.label # if SYMBOLS.hasKey(op.kind): SYMBOLS[op.kind] else: op.label
   result = generateIdent(s)
 
 proc generateBinOp(generator: Generator, node: Node): PNode =
@@ -428,14 +431,6 @@ proc generateBinOp(generator: Generator, node: Node): PNode =
 
   result = nkInfix.newTree(
     generateIdent(node[0].label),
-    emitNode(node[1]),
-    emitNode(node[2]))
-
-proc generateCompare(generator: Generator, node: Node): PNode =
-  ensure(PyCompare)
-
-  result = nkInfix.newTree(
-    generator.generateOp(node[0]),
     emitNode(node[1]),
     emitNode(node[2]))
 
@@ -462,7 +457,7 @@ proc generateNameConstant(generator: Generator, node: Node): PNode =
     result = nilNode
 
 proc generateForIn(generator: Generator, node: Node): PNode =
-  if node[0].kind != PyTuple:
+  if node[0].kind != NimTuple:
     result = nkForStmt.newTree()
     for child in node.children:
       result.add(emitNode(child))
@@ -521,7 +516,7 @@ proc generateIndex(generator: Generator, node: Node): PNode =
 
 proc generateExceptHandler(generator: Generator, node: Node): PNode =
   result = nkExceptBranch.newTree(
-    if node[0].kind != PyNone: emitNode(node[0]) else: emptyNode,
+    if node[0].kind != Nil: emitNode(node[0]) else: emptyNode,
     emitNode(node[1]))
 
 proc generateRaise(generator: Generator, node: Node): PNode =
@@ -600,8 +595,6 @@ proc generateNode(generator: Generator, node: Node): PNode =
     result = generator.generateVariable(node)
   of Self:
     result = generateIdent("self")
-  of PyNone:
-    result = nilNode
   of If:
     result = generator.generateIf(node)
   of NimWhen:
@@ -630,12 +623,12 @@ proc generateNode(generator: Generator, node: Node): PNode =
     result = generator.generateDocstring(node)
   of BinOp:
     result = generator.generateBinOp(node)
-  of PyCompare:
-    result = generator.generateCompare(node)
-  of PyConstr:
-    result = generator.generateConstr(node)
-  of PyNameConstant:
-    result = generator.generateNameConstant(node)
+  # of PyCompare:
+  #   result = generator.generateCompare(node)
+  # of PyConstr:
+  #   result = generator.generateConstr(node)
+  # of PyNameConstant:
+  #   result = generator.generateNameConstant(node)
   of ForIn:
     result = generator.generateForIn(node)
   of ForRange:
@@ -661,13 +654,13 @@ proc generateNode(generator: Generator, node: Node): PNode =
     result = generator.generateExprColonExpr(node)
   of NimTuple:
     result = generator.generateTuple(node)
-  of PyTry:
+  of Try:
     result = generator.generateTry(node)
   of Index:
     result = generator.generateIndex(node)
-  of PyExceptHandler:
+  of ExceptHandler:
     result = generator.generateExceptHandler(node)
-  of PyRaise:
+  of Raise:
     result = generator.generateRaise(node)
   of NimInfix:
     result = generator.generateInfix(node)
@@ -677,18 +670,16 @@ proc generateNode(generator: Generator, node: Node): PNode =
     result = generator.generateYield(node)
   of Break:
     result = generator.generateBreak(node)
-  of PyWith:
-    result = generator.generateWith(node)
+  # of With:
+  #   result = generator.generateWith(node)
   of NimOf:
     result = generator.generateOf(node)
-  of PyTuple:
-    result = generator.generateTuple(node)
   of NimPrefix:
     result = generator.generatePrefix(node)
   of Import:
     result = generator.generateImport(node)
-  of PyAugAssign:
-    result = generator.generateAugAssign(node)
+  # of PyAugAssign:
+  #   result = generator.generateAugAssign(node)
   of NimSlice:
     result = generator.generateSlice(node)
   of NimCommentedOut:
