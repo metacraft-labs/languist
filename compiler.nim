@@ -577,6 +577,16 @@ proc toBool(node: Node): Node =
   else:
     result = node
 
+proc underscore(label: string): string =
+  result = ""
+  for i, c in label:
+    if c.isUpperAscii:
+      if i > 0:
+        result.add("_")
+      result.add(($c).toLowerAscii)
+    else:
+      result.add($c)
+
 proc analyze(node: Node, env: Env, class: Type = nil) =
   case node.kind:
   of Class:
@@ -621,6 +631,8 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
     analyze(node.children[0], env)
     for arg in node.children[1 .. ^1]:
       analyze(arg, env)
+    if node.children[0].kind == Variable and node.children[0].label == "include":
+      node.children[1].label = underscore(node.children[1].label)
   of Variable:
     if node.label.endsWith("?") and node.label.len > 1:
       eecho node.label

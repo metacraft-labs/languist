@@ -108,9 +108,10 @@ type
     hasYield*:    bool
 
   NodeKind* = enum
-    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, NimTable, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, NimSlice, ForIn, Docstring, Command, MacroCall, Try, ExceptHandler, Raise,
+    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, NimTable, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, NimSlice, ForIn, Docstring, Command, MacroCall, Try, ExceptHandler, Raise, Empty,
     AugOp, ImportFrom,
-    RubyConst, RubyMasgn, RubyMlhs, RubySplat, RubyIRange, RubyRegexp, RubyRegopt,
+    RubyConst, RubyMasgn, RubyMlhs, RubySplat, RubyIRange, RubyRegexp, RubyRegopt, 
+    RubyAlias, 
     NimWhen, NimRange, NimRangeLess, NimCommentedOut, NimExprColonExpr, NimInfix, NimAccQuoted, NimOf, NimPrefix, NimIf, NimElif, NimElse, NimTuple
 
   Declaration* {.pure.} = enum Existing, Let, Var, Const
@@ -614,7 +615,11 @@ proc camelCase*(label: string): string =
   result = repeat("_", underline) & tokens[0] & tokens[1..^1].mapIt(if len(it) > 0: capitalizeAscii(it) else: "_").join("")
 
 proc translateIdentifier*(label: string): string =
-  result = camelCase(label)
+  var l = label
+  if l.endsWith("?"):
+    l = "is_" & l[0 .. ^2]
+  result = camelCase(l)
+  
 
 proc translateIdentifier*(label: string, identifierCollisions: HashSet[string]): string =
   var translated = translateIdentifier(label)

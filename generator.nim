@@ -338,14 +338,19 @@ proc generateSend(generator: Generator, node: Node): PNode =
     result.add(emitNode(arg))
 
 proc generateCall(generator: Generator, node: Node): PNode =
-  result = nkCall.newTree(emitNode(node[0]))
+  if node[0].kind == Variable and node[0].label == "include":
+    result = nkImportStmt.newTree()
+  else:
+    result = nkCall.newTree(emitNode(node[0]))
   for i, arg in node.children:
     if i > 0:
       result.add(emitNode(arg))
 
   if node[0].kind == Variable and node[0].label == "echo":
     result.kind = nkCommand
-
+  if result.kind == nkImportStmt:
+    generator.top.add(result)
+    result = emptyNode
 
 proc generateMacroCall(generator: Generator, node: Node): PNode =
   # similar to command
@@ -551,22 +556,22 @@ proc generateTuple(generator: Generator, node: Node): PNode =
 proc generatePrefix(generator: Generator, node: Node): PNode =
   result = nkPrefix.newTree(emitNode(node[0]), emitNode(node[1]))
 
+
 proc generateImport(generator: Generator, node: Node): PNode =
   result = nkImportStmt.newTree()
   for child in node:
     result.add(emitNode(child))
 
-proc generateAugAssign(generator: Generator, node: Node): PNode =
-  result = nkInfix.newTree(generateIdent("+="), emitNode(node[0]), emitNode(node[1]))
-
 proc generateMath(generator: Generator, op: string, node: Node): PNode =
   result = nkInfix.newTree(generateIdent(op), emitNode(node[0]), emitNode(node[1]))
+
 
 proc generateSlice(generator: Generator, node: Node): PNode =
   var start = if node[0].kind != Nil: emitNode(node[0]) else: newIntNode(nkIntLit, 0)
   var finish = if node[0].kind != Nil: emitNode(node[1]) else: nkPrefix.newTree(generateIdent("^"), newIntNode(nkIntLit, 1))
   var op = if node[0].kind != Nil: "..<" else: ".."
   result = nkInfix.newTree(generateIdent(op), start, finish)
+
 
 proc generateCommentedOut(generator: Generator, node: Node): PNode =
   result = newNode(nkEmpty)
@@ -579,9 +584,13 @@ proc generateContinue(generator: Generator, node: Node): PNode =
 proc homogeneous(node: Node): bool =
   node.children.len == 0 or node.children.allIt(it.kind == node.children[0].kind)
 
+
+proc generateAlias(generator: Generator, node: Node): PNode =
+  #var met = node.deepCopy()
+  #result = generator.generateForward(met)
+  result = emptyNode #generator.generateFunction()
+
 proc generateNode(generator: Generator, node: Node): PNode =
-  # TODO: macro
-  # log fmt"generate {node.kind}"
   if node.isNil:
     result = nilNode
     return
@@ -591,7 +600,7 @@ proc generateNode(generator: Generator, node: Node): PNode =
     result = generator.generateAssign(node)
   of New:
     result = generator.generateNew(node)
-  of Variable:
+  of Variable, RubyConst:
     result = generator.generateVariable(node)
   of Self:
     result = generateIdent("self")
@@ -623,12 +632,7 @@ proc generateNode(generator: Generator, node: Node): PNode =
     result = generator.generateDocstring(node)
   of BinOp:
     result = generator.generateBinOp(node)
-  # of PyCompare:
-  #   result = generator.generateCompare(node)
-  # of PyConstr:
-  #   result = generator.generateConstr(node)
-  # of PyNameConstant:
-  #   result = generator.generateNameConstant(node)
+
   of ForIn:
     result = generator.generateForIn(node)
   of ForRange:
@@ -670,16 +674,14 @@ proc generateNode(generator: Generator, node: Node): PNode =
     result = generator.generateYield(node)
   of Break:
     result = generator.generateBreak(node)
-  # of With:
-  #   result = generator.generateWith(node)
   of NimOf:
     result = generator.generateOf(node)
   of NimPrefix:
     result = generator.generatePrefix(node)
+  of RubyAlias:
+    result = generator.generateAlias(node)
   of Import:
     result = generator.generateImport(node)
-  # of PyAugAssign:
-  #   result = generator.generateAugAssign(node)
   of NimSlice:
     result = generator.generateSlice(node)
   of NimCommentedOut:

@@ -71,3 +71,10 @@ do:
   code:
     send(args["a"], "upper")
   dependencies: @["strutils"]
+
+rewrite do ():
+  private()
+do:
+  code:
+    Node(kind: Empty)
+
