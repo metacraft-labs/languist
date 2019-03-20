@@ -108,7 +108,7 @@ type
     hasYield*:    bool
 
   NodeKind* = enum
-    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, NimTable, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, NimSlice, ForIn, Docstring, Command, MacroCall, Try, ExceptHandler, Raise, Empty,
+    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, NimTable, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, NimSlice, ForIn, Docstring, Command, MacroCall, Try, ExceptHandler, Raise, Empty, Case, Of,
     AugOp, ImportFrom,
     RubyConst, RubyMasgn, RubyMlhs, RubySplat, RubyIRange, RubyRegexp, RubyRegopt, 
     RubyAlias, 
@@ -135,8 +135,8 @@ type
       f*: float
     of Char:
       c*: char
-    # of PyHugeInt:
-    #   h*: string
+    of Bool:
+      val*: bool
     of Assign:
       declaration*: Declaration
     of Import:
@@ -152,6 +152,7 @@ type
       isIterator*: bool
       isMethod*: bool
       isGeneric*: bool
+      isClass*: bool
       returnType*: Type
       args*: seq[Node]
       code*: seq[Node]
@@ -453,6 +454,8 @@ proc dump*(node: Node, depth: int, typ: bool = false): string =
   var left = case node.kind:
     of Int:
       "Int($1)$2" % [$node.i, typDump]
+    of Bool:
+      "Bool($1)$2" % [$node.val, typDump]
     of Variable, Operator, RubyConst:
       $node.kind & "($1)$2" % [node.label, typDump]
     of String, Symbol, Docstring:
@@ -575,6 +578,9 @@ proc deepCopy*(a: Node): Node =
   of Int:
     result.i = a.i
     result.typ = IntType
+  of Bool:
+    result.val = a.val
+    result.typ = BoolType
   of Variable, Operator, RubyConst:
     result.label = a.label
   # of PyHugeInt:

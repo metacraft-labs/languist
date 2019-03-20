@@ -299,6 +299,14 @@ proc generateWhen(generator: Generator, node: Node): PNode =
   if not node[2].isNil and len(node[2].children) > 0:
     result[0].add(nkElse.newTree(emitNode(node[2])))
 
+proc generateCase(generator: Generator, node: Node): PNode =
+  result = nkCaseStmt.newTree(emitNode(node[0]))
+  for child in node.children[1 .. ^1]:
+    if child.kind == Of:
+      result.add(nkOfBranch.newTree(emitNode(child[0]), emitNode(child[1])))
+    else:
+      result.add(nkElse.newTree(emitNode(child)))
+
 proc generateGroup(generator: Generator, group: seq[Node]): PNode =
   assert group[0].kind == Assign
   result = case group[0].declaration:
@@ -502,8 +510,11 @@ proc generateWhile(generator: Generator, node: Node): PNode =
   result = nkWhileStmt.newTree(emitNode(node[0]), emitNode(node[1]))
 
 proc generatePair(generator: Generator, node: Node): PNode =
-  result = nkExprEqExpr.newTree(generateIdent(node[0].text
-    ), emitNode(node[1]))
+  if node[0].kind == Symbol:
+    result = nkExprEqExpr.newTree(generateIdent(node[0].text
+      ), emitNode(node[1]))
+  else:
+    result = emptyNode
 
 proc generateUnaryOp(generator: Generator, node: Node): PNode =
   result = nkPrefix.newTree(generateIdent(node[0].label), emitNode(node[1]))
@@ -610,6 +621,8 @@ proc generateNode(generator: Generator, node: Node): PNode =
     result = generator.generateWhen(node)
   of Code:
     result = generator.generateCode(node)
+  of Case:
+    result = generator.generateCase(node)
   of Call:
     result = generator.generateCall(node)
   of MacroCall:
@@ -620,6 +633,8 @@ proc generateNode(generator: Generator, node: Node): PNode =
     result = generator.generateReturn(node)
   of Int:
     result = generator.generateInt(node)
+  of Bool:
+    result = generateIdent($node.val)
   of Float:
     result = generator.generateFloat(node)
   of Attribute:

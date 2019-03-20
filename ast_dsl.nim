@@ -234,7 +234,7 @@ macro index*(arg: untyped, b: untyped): untyped =
   var i = b
   i = i.expandLiteral()
   result = quote:
-    Node(kind: Index, children: @[`arg`, `i`], typ: `arg`.typ.args[0], isFinished: true)
+    Node(kind: Index, children: @[`arg`, `i`], typ: if `arg`.typ.args.len > 0: `arg`.typ.args[0] else: VoidType, isFinished: true)
 
 template operator*(op: untyped, ignore: untyped = nil): untyped =
   Node(

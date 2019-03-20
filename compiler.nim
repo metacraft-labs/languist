@@ -86,6 +86,8 @@ proc loadNode*(m: JsonNode, traceDB: TraceDB): Node =
     result = Node(kind: RubyConst, label: m{"label"}.getStr())
   of Int:
     result = Node(kind: Int, i: m{"i"}.getInt(), typ: IntType)
+  of Bool:
+    result = Node(kind: Bool, val: m{"val"}.getBool(), typ: BoolType)
   of String:
     result = Node(kind: String, text: m{"text"}.getStr(), typ: StringType)
   
@@ -235,6 +237,8 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
     result = l.text == r.text
   of Int:
     result = l.i == r.i
+  of Bool:
+    result = l.val == r.val
   of Float:
     result = l.f == r.f
   of Char:
@@ -642,6 +646,8 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
     node.typ = Type(kind: T.Simple, label: "Class")
   of Int:
     node.typ = IntType
+  of Bool:
+    node.typ = BoolType
   of Assign:
     analyze(node.children[1], env)
     node.children[0].typ = node.children[1].typ
@@ -674,8 +680,11 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
   of Attribute:
     analyze(node.children[0], env)
     if not node.children[0].typ.isNil and node.children[0].typ.kind == Object:
-      let typ = node.children[0].typ.fields[node.children[1].text]
-      node.typ = typ
+      if node.children[0].typ.fields.hasKey(node.children[1].text):
+        let typ = node.children[0].typ.fields[node.children[1].text]
+        node.typ = typ
+      else:
+        node.typ = VoidType
     else:
       node.typ = VoidType
   of Self:
@@ -688,6 +697,8 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
     if node.typ == BoolType and node.children[0].label == "and":
       node.children[1] = toBool(node.children[1])
       node.children[2] = toBool(node.children[2])
+    elif node.children[0].label == "+":
+      node.typ = node.children[1].typ
   else:
     for child in node.children:
       analyze(child, env)
