@@ -122,6 +122,10 @@ proc loadMethod*(m: JsonNode, traceDB: TraceDB, isBlock: bool = false): Node =
   result.isIterator = m{"isIterator"}.getBool()
   result.typ = loadType(m{"typ"}, traceDB)
   result.returnType = loadType(m{"returnType"}, traceDB)
+  if not m{"docstring"}.isNil:
+    result.docstring = m{"docstring"}.mapIt(it.getStr())
+  else:
+    result.docstring = @[]
   if result.typ.isNil:
     var args = result.args.mapIt(it.typ)
     result.typ = Type(kind: T.Method, args: args, returnType: result.returnType)
@@ -133,6 +137,7 @@ proc loadClass*(m: JsonNode, traceDB: TraceDB): Node =
   result.label = m{"label"}.getStr()
   result.fields = m{"fields"}.mapIt(Field(label: it{"label"}.getStr(), node: it{"node"}.loadNode(traceDB)))
   result.methods = m{"methods"}.mapIt(Field(label: it{"label"}.getStr(), node: it{"node"}.loadMethod(traceDB)))
+  result.docstring = m{"docstring"}.mapIt(it.getStr())
   var typ = loadType(m{"typ"}, traceDB)
   edump result.label
   edump dump(typ, 0)
@@ -754,7 +759,7 @@ proc generateCode(traceDB: TraceDB) =
     var generator = Generator(indent: 2, v: V019, module: Module(), identifierCollisions: initSet[string]())
     var output = generator.generate(input, traceDB.config)
     writeFile(newPath, output)
-    eecho &"write {newPath}"
+    echo &"write {newPath}"
 
 
 proc compile*(traceDB: TraceDB) =

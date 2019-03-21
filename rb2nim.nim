@@ -52,7 +52,7 @@ else:
   targetFolder = expandFilename(paramStr(2))
   command = paramStr(3)
   let deduckt_exe = getHomedir() / "ruby-deduckt" / "exe" / "ruby-deduckt"
-  echo &"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}"
+  # echo &"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}"
   discard execShellCmd(&"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}")
 
 let path = getEnv("RB2NIM_CONFIG", "")

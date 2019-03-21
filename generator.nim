@@ -61,11 +61,12 @@ proc generateTypeDeclaration(generator: Generator, t: Node): PNode =
 
   var recList: PNode
   var docstring: PNode
+  let docstringText = t.docstring.join("\n")
+  
   if len(t.typ.fields) > 0:
     recList = nkRecList.newTree()
-    if len(t.docstring) > 0:
-      recList.add(newNode(nkEmpty))
-      recList[^1].comment = t.docstring.join("\n")
+    recList.add(newNode(nkEmpty))
+    recList[^1].comment = docstringText
     for member, a in t.typ.fields:
       recList.add(nkIdentDefs.newTree(
         nkPostfix.newTree(generateIdent("*"), generateIdent(member)),
@@ -73,11 +74,9 @@ proc generateTypeDeclaration(generator: Generator, t: Node): PNode =
         emptyNode))
   else:
     recList = emptyNode
-    if len(t.docstring) > 0:
-      docstring = newNode(nkEmpty)
-      docstring.comment = t.docstring.join("\n")
-
-
+    docstring = newNode(nkEmpty)
+    docstring.comment = docstringText
+  
   var base: PNode
   if not t.typ.base.isNil:
     base = nkOfInherit.newTree(generator.generateType(t.typ.base))
@@ -99,10 +98,9 @@ proc generateTypeDeclaration(generator: Generator, t: Node): PNode =
   result = nkTypeSection.newTree(tNode)
   if not docstring.isNil:
     result.add(docstring)
-  result = nkStmtList.newTree(result)
   for met in t.methods:
     generator.methods.add(generator.generateMethod(met.node))
-
+  
 
 proc generateType(generator: Generator, typ: Type): PNode =
   if typ.isNil:
@@ -138,8 +136,6 @@ proc generateType(generator: Generator, typ: Type): PNode =
       result = generateIdent($typ.kind)
     if typ.isVar:
       result = nkVarTy.newTree(result)
-    # elif typ.isRef:
-      # result = nkRefTy.newTree(result)
 
 proc generateArgs(generator: Generator, nodes: seq[Node], typ: Type): PNode
 
@@ -219,9 +215,9 @@ proc generateMethod(generator: Generator, met: Node): PNode =
   for child in met.code:
     children.add(emitNode(child))
   result.sons[^1] = children
-  if len(met.doc) > 0:
+  if len(met.docstring) > 0:
     var docstring = newNode(nkEmpty)
-    docstring.comment = met.doc.join("\n")
+    docstring.comment = met.docstring.join("\n")
     result.sons[^1] = nkStmtList.newTree(docstring, result.sons[^1])
 
 # proc generateFunction(generator: Generator, function: Node): PNode =
@@ -552,7 +548,10 @@ proc generateAccQuoted(generator: Generator, node: Node): PNode =
   result = nkAccQuoted.newTree(emitNode(node[0]))
 
 proc generateYield(generator: Generator, node: Node): PNode =
-  result = nkYieldStmt.newTree(emitNode(node[0]))
+  if node.children.len > 0:
+    result = nkYieldStmt.newTree(emitNode(node[0]))
+  else:
+    result = nkYieldStmt.newTree()
 
 proc generateBreak(generator: Generator, node: Node): PNode =
   result = nkBreakStmt.newTree(emptyNode)
@@ -624,8 +623,12 @@ proc generateNode(generator: Generator, node: Node): PNode =
     result = generator.generateVariable(node)
   of Self:
     result = generateIdent("self")
+  of Super:
+    result = generateIdent("super") # TODO
   of If:
     result = generator.generateIf(node)
+  of Comment:
+    result = emptyNode
   of NimWhen:
     result = generator.generateWhen(node)
   of Code:

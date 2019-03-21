@@ -108,7 +108,7 @@ type
     hasYield*:    bool
 
   NodeKind* = enum
-    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, NimTable, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, NimSlice, ForIn, Docstring, Command, MacroCall, Try, ExceptHandler, Raise, Empty, Case, Of, Range,
+    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, NimTable, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, NimSlice, ForIn, Docstring, Command, MacroCall, Try, ExceptHandler, Raise, Empty, Case, Of, Range, Super, Comment,
     AugOp, ImportFrom,
     RubyConst, RubyMasgn, RubyMlhs, RubySplat, RubyIRange, RubyRegexp, RubyRegopt, 
     RubyAlias, 
@@ -127,7 +127,7 @@ type
     isReplace*: bool
     genBlock*: bool
     case kind*: NodeKind:
-    of String, Symbol, Docstring:
+    of String, Symbol, Docstring, Comment:
       text*: string
     of Int:
       i*: int
@@ -146,7 +146,6 @@ type
     of Class:
       fields*: seq[Field]
       methods*: seq[Field]
-      docstring*: seq[string]
     of NodeMethod, Block:
       # id*: string
       isIterator*: bool
@@ -156,9 +155,9 @@ type
       returnType*: Type
       args*: seq[Node]
       code*: seq[Node]
-      doc*: seq[string]
     else:
       discard
+    docstring*: seq[string]
     children*: seq[Node] # complicates everything to have it disabled for several nodes
 
   Field* = object
@@ -458,7 +457,7 @@ proc dump*(node: Node, depth: int, typ: bool = false): string =
       "Bool($1)$2" % [$node.val, typDump]
     of Variable, Operator, RubyConst:
       $node.kind & "($1)$2" % [node.label, typDump]
-    of String, Symbol, Docstring:
+    of String, Symbol, Docstring, Comment:
       $node.kind & "($1)$2" % [node.text, typDump]
     of NodeMethod, Block:
       if node.typ.isNil:
@@ -572,9 +571,10 @@ proc deepCopy*(a: Node): Node =
     return nil
   result = genKind(Node, a.kind)
   case a.kind:
-  of String, Docstring:
+  of String, Docstring, Comment:
     result.text = a.text
-    result.typ = StringType
+    if a.kind != Comment:
+      result.typ = StringType
   of Int:
     result.i = a.i
     result.typ = IntType
@@ -594,6 +594,7 @@ proc deepCopy*(a: Node): Node =
   of Class:
     result.methods = a.methods.mapIt(Field(label: it.label, node: deepCopy(it.node)))
     result.label = a.label
+    result.docstring = a.docstring
     result.typ = deepCopy(a.typ)
   of Symbol:
     result.text = a.text
@@ -603,6 +604,8 @@ proc deepCopy*(a: Node): Node =
     result.code = a.code.mapIt(deepCopy(it))
     result.label = a.label
     result.isMethod = a.isMethod
+    result.isIterator = a.isIterator
+    result.docstring = a.docstring
   else:
     discard
   result.children = @[]
