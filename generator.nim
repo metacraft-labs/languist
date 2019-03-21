@@ -258,6 +258,13 @@ proc generateAssign(generator: Generator, node: Node): PNode =
   of Declaration.Existing:
     result = nkAsgn.newTree(name, value)
 
+proc generateAugOp(generator: Generator, node: Node): PNode =
+  let name = emitNode(node[0])
+  let value = emitNode(node[2])
+  let op = generateDirectIdent(node[1].label & "=")
+  result = nkInfix.newTree(op, name, value)
+
+
 proc generateNew(generator: Generator, node: Node): PNode =
   let good = generateIdent("init" & node[0].label)
   result = nkCall.newTree(good)
@@ -609,6 +616,8 @@ proc generateNode(generator: Generator, node: Node): PNode =
   case node.kind:
   of Assign:
     result = generator.generateAssign(node)
+  of AugOp:
+    result = generator.generateAugOp(node)
   of New:
     result = generator.generateNew(node)
   of Variable, RubyConst:

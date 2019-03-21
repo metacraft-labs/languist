@@ -299,8 +299,8 @@ proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): Node
   var newNode = node
   if node.kind == Call and node.children[0].kind == Variable and node.children[0].label in rewrites[1].genBlock:
     node.kind = MacroCall # = genKind(Node, MacroCall)
-    echo dump(node, 0, true)
-    echo dump(node.children[^1], 0, true)
+    #echo dump(node, 0, true)
+    #echo dump(node.children[^1], 0, true)
     if node.children[^1].kind == Block:
       node.children[^1] = Node(kind: Code, children: node.children[^1].code)
   if b.len > 0:
@@ -360,9 +360,9 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)], isOutputArg: b
           typ = e[1]
       return nnkCall.newTree(ident"variable", newLit($node), returnType)
     else:
-      dump replaced
+      #dump replaced
       for e in replaced:
-        dump e
+        #dump e
         if label == e[0]:
           return nnkBracketExpr.newTree(ident"args", newLit($node))
       return nnkCall.newTree(ident"variable", newLit($node), returnType)

@@ -108,7 +108,7 @@ type
     hasYield*:    bool
 
   NodeKind* = enum
-    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, NimTable, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, NimSlice, ForIn, Docstring, Command, MacroCall, Try, ExceptHandler, Raise, Empty, Case, Of,
+    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, NimTable, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, NimSlice, ForIn, Docstring, Command, MacroCall, Try, ExceptHandler, Raise, Empty, Case, Of, Range,
     AugOp, ImportFrom,
     RubyConst, RubyMasgn, RubyMlhs, RubySplat, RubyIRange, RubyRegexp, RubyRegopt, 
     RubyAlias, 
@@ -213,7 +213,7 @@ type
 
 let endl* = "\n"
 
-var debug* = true
+var debug* = false #true
 
 template eecho*(a: untyped): untyped =
   if debug:
