@@ -18,5 +18,5 @@ else:
       echo path
       discard execShellCmd(&"./rb2nim {path} ~/nim-rubocop/cops \"bash ~/spec.sh {path} {category}\"")
 
-setControlCHook do ():
-  quit(1)
+# setControlCHook do ():
+#   quit(1)
