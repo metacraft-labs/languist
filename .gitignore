@@ -21,3 +21,5 @@ test/all
 test/any
 test/index
 test/modify
+!rubocop.json
+!test.json

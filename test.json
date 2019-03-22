@@ -1,0 +1,5 @@
+{
+    "indent": 2,
+    "imports": ["ruby"],
+    "name": "test"
+}
