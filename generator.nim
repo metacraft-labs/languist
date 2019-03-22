@@ -282,7 +282,7 @@ proc generateIf(generator: Generator, node: Node): PNode =
     var elifBranch = nkElifBranch.newTree(
       emitNode(last[0]),
       emitNode(last[1]))
-    last = last[2]
+    last = if last.children.len > 2: last[2] else: nil
     if not last.isNil and len(last.children) > 0:
       while not last.isNil and last.kind == Code and len(last.children) == 1:
         last = last[0]
@@ -520,7 +520,7 @@ proc generatePair(generator: Generator, node: Node): PNode =
     result = emptyNode
 
 proc generateUnaryOp(generator: Generator, node: Node): PNode =
-  result = nkPrefix.newTree(generateIdent(node[0].label), emitNode(node[1]))
+  result = nkPrefix.newTree(generateIdent(node[0].label & " "), emitNode(node[1]))
 
 proc generateExprColonExpr(generator: Generator, node: Node): PNode =
   result = nkExprColonExpr.newtree(emitNode(node[0]), emitNode(node[1]))
@@ -734,6 +734,7 @@ proc generate*(generator: Generator, module: Module, config: Config): string =
   generator.main = newNode(nkStmtList)
 
   # mercy!
+  echo config
   for i in config.imports:
     generator.top.add(generator.generateImport(Node(kind: Code, children: @[variable(i)])))
   if len(module.imports) > 0:

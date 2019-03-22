@@ -704,6 +704,9 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
       node.children[2] = toBool(node.children[2])
     elif node.children[0].label == "+":
       node.typ = node.children[1].typ
+  of UnaryOp:
+    if node.children[0].label in @["not"]:
+      node.typ = BoolType
   else:
     for child in node.children:
       analyze(child, env)
