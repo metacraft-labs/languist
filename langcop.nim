@@ -1,4 +1,4 @@
-import os, strformat, strutils
+import os, strformat, strutils, osproc
 
 # langcop block_length metrics
 let arg = paramStr(1)
@@ -16,7 +16,8 @@ else:
       # Praise the Lord!
       let path = child.path.splitFile[1]
       echo path
-      discard execShellCmd(&"./rb2nim {path} ~/nim-rubocop/cops \"bash ~/spec.sh {path} {category}\"")
+      let status = execCmd(&"./rb2nim {path} ~/nim-rubocop/cops \"bash ~/spec.sh {path} {category}\"")
+      echo "langcop", status
+      if status == 130:
+        quit(1)      
 
-# setControlCHook do ():
-#   quit(1)

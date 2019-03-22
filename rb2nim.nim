@@ -1,4 +1,4 @@
-import types, compiler, os, strformat, strutils, json
+import types, compiler, os, strformat, strutils, json, osproc
 
 # rb2nim <filename pattern> <target_folder>
 if paramCount() != 1 and paramCount() != 3:
@@ -28,12 +28,18 @@ if paramCount() == 1:
         let deduckt_exe = getHomedir() / "ruby-deduckt" / "exe" / "ruby-deduckt"
         command = &"ruby {deduckt_exe} -m {filename} -o {targetFolder} test/{filename}.rb"
         debug = false
-        discard execShellCmd(&"{command} > /dev/null 2>&1")
+        var status = execCmd(&"{command} > /dev/null 2>&1")
+        echo status
+        if status == 130:
+          quit(status)
         var traceDB = load(targetFolder / "lang_traces.json", rewriteinputruby, targetFolder, config)
         compile(traceDB)
-        discard execShellCmd(&"nim c test/{filename}.nim > /dev/null 2>&1")
-        discard execShellCmd(&"ruby test/{filename}.rb > test/ruby")
-        discard execShellCmd(&"test/{filename} > test/nim")
+        status = execCmd(&"nim c test/{filename}.nim > /dev/null 2>&1")
+        echo status
+        if status == 130:
+          quit(status)
+        discard execCmd(&"ruby test/{filename}.rb > test/ruby")
+        discard execCmd(&"test/{filename} > test/nim")
         if readFile("test/ruby") == readFile("test/ruby"):
           echo "OK"
         else:
@@ -47,13 +53,18 @@ if paramCount() == 1:
     let module_pattern = filename.splitFile()[1]
     command = &"env DEDUCKT_MODULE_PATTERNS={module_pattern} DEDUCKT_OUTPUT_DIR={targetFolder} bundle exec {deduckt_exe} {filename}"
     echo command
-    discard execShellCmd(command)
+    let status = execCmd(command)
+    if status == 130:
+      quit(status)
 else:
   targetFolder = expandFilename(paramStr(2))
   command = paramStr(3)
   let deduckt_exe = getHomedir() / "ruby-deduckt" / "exe" / "ruby-deduckt"
   # echo &"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}"
-  discard execShellCmd(&"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}")
+  let status = execCmd(&"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}")
+
+  if status == 130:
+    quit(status)
 
 let path = getEnv("RB2NIM_CONFIG", "")
 var config = Config(imports: @[], indent: 2, name: "default config")
