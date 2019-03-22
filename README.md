@@ -1,10 +1,13 @@
 
 # rb2nim
 
-Download https://gitlab.com/metacraft-labs/rubocop
+Clone the repositories [rubocop][rubocop_url] and [fast-rubocop][fast_rubocop_url]
+and place them next to each other
+
 install rbenv or ruby in some other way: you might need to change your commands
 
-Download https://gitlab.com/metacraft-labs/fast-rubocop
+[rubocop_url]: https://gitlab.com/metacraft-labs/rubocop
+[fast_rubocop_url]: https://gitlab.com/metacraft-labs/fast-rubocop
 
 Set in env RB2NIM_CONFIG to e.g. `rubocop.json` or `test.json`
 ```bash
@@ -19,11 +22,13 @@ But run mostly langcop for now
 where spec.sh is e.g. something like 
 
 ```bash
-cd ~/rubocop
-rbenv local 2.5.0
+#!/bin/bash
+RUBY_VERSION=2.5.0
 
-rbenv exec ruby /home/alehander42/.rbenv/versions/2.5.0/bin/rspec ~/rubocop/spec/rubocop/cop/style/case_equality_spec.rb
-# your path
+cd ../rubocop
+rbenv local $RUBY_VERSION
+
+rbenv exec ruby ~/.rbenv/versions/$RUBY_VERSION/bin/rspec ./spec/rubocop/cop/style/case_equality_spec.rb
 ```
 
 we also need to require_relative tracing.rb in the right place: this has to be automated more, but for now it's in cop.rb in your repo.
