@@ -73,7 +73,7 @@ do:
   dependencies: @["strutils"]
 
 rewrite do ():
-  private()
+  self.private()
 do:
   code:
     Node(kind: Empty)

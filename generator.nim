@@ -137,13 +137,21 @@ proc generateType(generator: Generator, typ: Type): PNode =
     if typ.isVar:
       result = nkVarTy.newTree(result)
 
-proc generateArgs(generator: Generator, nodes: seq[Node], typ: Type): PNode
+proc generateArgs(generator: Generator, nodes: seq[Node], typ: Type, returnType: Type): PNode
 
 proc generateForward(generator: Generator, function: Node): PNode =
   assert function.kind in {NodeMethod, Block}
 
   eecho function.typ.isNil
-  let args = generator.generateArgs(function.args, function.typ)
+  if function.returnType.isNil:
+    echo "nil"
+  elif function.returnType.kind == Simple:
+    echo function.returnType.label
+  else:
+    echo function.returnType.kind
+  if function.label.startsWith("on"):
+    function.returnType = VoidType # HACK
+  let args = generator.generateArgs(function.args, function.typ, function.returnType)
 
   var name = generateIdent(function.label)
   name = nkPostfix.newTree(
@@ -191,12 +199,12 @@ proc generateForward(generator: Generator, function: Node): PNode =
   result.add(emptyNode)
   result.add(emptyNode)
 
-proc generateArgs(generator: Generator, nodes: seq[Node], typ: Type): PNode =
+proc generateArgs(generator: Generator, nodes: seq[Node], typ: Type, returnType: Type): PNode =
   var iTyp = typ
   if typ.kind == T.MethodOverload:
     iTyp = typ.overloads[0]
   result = nkFormalParams.newTree()
-  result.add(generator.generateType(iTyp.returnType))
+  result.add(generator.generateType(returnType))
   var z = 0
   for arg in nodes:
     var argTyp = if z < len(iTyp.args): iTyp.args[z] else: VoidType
@@ -343,6 +351,7 @@ proc generateCode(generator: Generator, node: Node): PNode =
     z += 1
 
 proc generateSend(generator: Generator, node: Node): PNode =
+  # either config or just guessing from trace! if self or not!
   result = nkCall.newTree(
     nkDotExpr.newTree(emitNode(node[0]), generateIdent(node[1].text)))
   for arg in node.children[2 .. ^1]:

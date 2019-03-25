@@ -605,7 +605,9 @@ proc deepCopy*(a: Node): Node =
     result.label = a.label
     result.isMethod = a.isMethod
     result.isIterator = a.isIterator
+    result.returnType = deepCopy(a.returnType)
     result.docstring = a.docstring
+
   else:
     discard
   result.children = @[]

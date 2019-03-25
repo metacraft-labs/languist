@@ -227,6 +227,8 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
       else:
         return true
     else:
+      if l.label == "self" and r.kind == Self:
+        return true
       return l.label == r.label
   if l.kind == Operator and r.kind in {Variable, Operator}:
     return l.label == r.label
@@ -693,7 +695,7 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
     else:
       node.typ = VoidType
   of Self:
-    node.typ = env["self"]
+    node.typ = if env.hasKey("self"): env["self"] else: VoidType
   of BinOp:
     for child in node.children[1 .. ^1]:
       analyze(child, env)
