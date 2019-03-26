@@ -6,12 +6,12 @@ type
   Node* = ref object of void
     i*: int
 
-var node = .new(0)
-proc initNode*(i: void): Node =
+proc initNode*(i: void): void =
   new(result)
   self.i = i
 
 method `$`*(self: Node): string =
-  "Node" & `$`()
+  "Node" & self.i.toS
 
-echo node
+var node = initNode()
+self.puts(node)

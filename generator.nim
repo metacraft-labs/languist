@@ -250,15 +250,21 @@ proc generateAssign(generator: Generator, node: Node): PNode =
   ensure(Assign)
 
   let name = emitNode(node[0])
-  let value = emitNode(node[1])
-  edump dump(node, 0, true)
+  var value: PNode
+  var typ: PNode
+  if not node[1].isNil:
+    value = emitNode(node[1])
+    typ = emptyNode
+  else:
+    value = emptyNode
+    typ = generator.generateType(node.typ)
   case node.declaration:
   of Declaration.Var:
-    result = nkVarSection.newTree(nkIdentDefs.newTree(name, emptyNode, value))
+    result = nkVarSection.newTree(nkIdentDefs.newTree(name, typ, value))
   of Declaration.Let:
-    result = nkLetSection.newTree(nkIdentDefs.newTree(name, emptyNode, value))
+    result = nkLetSection.newTree(nkIdentDefs.newTree(name, typ, value))
   of Declaration.Const:
-    result = nkConstSection.newTree(nkConstDef.newTree(name, emptyNode, value))
+    result = nkConstSection.newTree(nkConstDef.newTree(name, typ, value))
   of Declaration.Existing:
     result = nkAsgn.newTree(name, value)
 
@@ -270,10 +276,13 @@ proc generateAugOp(generator: Generator, node: Node): PNode =
 
 
 proc generateNew(generator: Generator, node: Node): PNode =
-  let good = generateIdent("init" & node[0].label)
-  result = nkCall.newTree(good)
-  for arg in node.children[1 .. ^1]:
-    result.add(emitNode(arg))
+  if node.children.len > 1:
+    let good = generateIdent("init" & node[0].label)
+    result = nkCall.newTree(good)
+    for arg in node.children[1 .. ^1]:
+      result.add(emitNode(arg))
+  else:
+    result = nkCall.newTree(generateIdent(node[0].label))
 
 proc generateVariable(generator: Generator, node: Node): PNode =
   result = generateIdent(node.label)
@@ -542,7 +551,7 @@ proc generateTry(generator: Generator, node: Node): PNode =
 proc generateIndex(generator: Generator, node: Node): PNode =
   result = nkBracketExpr.newTree(emitNode(node[0]), emitNode(node[1]))
 
-proc generateExceptHandler(generator: Generator, node: Node): PNode =
+proc generateExcept(generator: Generator, node: Node): PNode =
   result = nkExceptBranch.newTree(
     if node[0].kind != Nil: emitNode(node[0]) else: emptyNode,
     emitNode(node[1]))
@@ -698,8 +707,8 @@ proc generateNode(generator: Generator, node: Node): PNode =
     result = generator.generateTry(node)
   of Index:
     result = generator.generateIndex(node)
-  of ExceptHandler:
-    result = generator.generateExceptHandler(node)
+  of Except:
+    result = generator.generateExcept(node)
   of Raise:
     result = generator.generateRaise(node)
   of NimInfix:
@@ -756,7 +765,7 @@ proc generate*(generator: Generator, module: Module, config: Config): string =
     generator.types.add(generator.generateTypeDeclaration(t))
 
   for b in module.main:
-    if b.kind in {Assign, MacroCall}:
+    if b.kind == Assign and b.declaration == Declaration.Const or b.kind in {MacroCall}:
       generator.global.add(emitNode(b))
     else:
       generator.main.add(emitNode(b))

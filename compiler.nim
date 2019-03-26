@@ -327,13 +327,22 @@ proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): 
 
   elif node.kind == NodeMethod or node.kind == Block:
     for i, child in node.code:
-      newNode.code[i] = rewriteNode(child, rewrite, blockNode, m)
-
+      if not child.isNil:
+        newNode.code[i] = rewriteNode(child, rewrite, blockNode, m)
+      else:
+        newNode.code[i] = nil
+    
     for i, child in node.children:
-      newNode.children[i] = rewriteNode(child, rewrite, blockNode, m)
+      if not child.isNil:
+        newNode.children[i] = rewriteNode(child, rewrite, blockNode, m)
+      else:
+        newNode.children[i] = nil
   else:
     for i, child in node.children:
-      newNode.children[i] = rewriteNode(child, rewrite, blockNode, m)
+      if not child.isNil:
+        newNode.children[i] = rewriteNode(child, rewrite, blockNode, m)
+      else:
+        newNode.children[i] = nil
   return newNode
 
 var inRuby {.compileTime.} = true
@@ -598,7 +607,7 @@ proc underscore(label: string): string =
     else:
       result.add($c)
 
-proc analyze(node: Node, env: Env, class: Type = nil) =
+proc analyze(node: Node, env: Env, class: Type = nil, inBranch: bool = false) =
   case node.kind:
   of Class:
     for met in node.methods.mitems:
@@ -631,17 +640,26 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
 
     for subNode in node.code:
       analyze(subNode, met)
-
+    var declarations: seq[Node] = @[]
+    for label, t in met.declarations:
+      let typ = t[0]
+      let declaration = t[1]
+      declarations.add(assign(variable(label), nil, declaration))
+      declarations[^1].typ = typ
+    # FAITH
+    node.code = declarations.concat(node.code)
+    if node.code[^1].typ.isNil:
+      node.returnType = VoidType
   of Send:
-    analyze(node.children[0], env)
+    analyze(node.children[0], env, inBranch=inBranch)
     if node.children[1].text.endsWith("?"):
       node.children[1].text = "is_" & node.children[1].text[0 .. ^2]
     for arg in node.children[2 .. ^1]:
-      analyze(arg, env)
+      analyze(arg, env, inBranch=inBranch)
   of Call:
-    analyze(node.children[0], env)
+    analyze(node.children[0], env, inBranch=inBranch)
     for arg in node.children[1 .. ^1]:
-      analyze(arg, env)
+      analyze(arg, env, inBranch=inBranch)
     if node.children[0].kind == Variable and node.children[0].label == "include":
       node.children[1].label = underscore(node.children[1].label)
   of Variable:
@@ -656,11 +674,16 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
   of Bool:
     node.typ = BoolType
   of Assign:
-    analyze(node.children[1], env)
+    analyze(node.children[1], env, inBranch=inBranch)
     node.children[0].typ = node.children[1].typ
     if node.children[0].kind == Variable:
       if not env.types.hasKey(node.children[0].label) and node.declaration == Existing:
-        node.declaration = Var
+        if not inBranch:
+          node.declaration = Var
+        else:
+          node.declaration = Existing
+          if not env.declarations.hasKey(node.children[0].label):
+            env.declarations[node.children[0].label] = (node.children[0].typ, Var)
         env[node.children[0].label] = node.children[0].typ
   of String, Docstring:
     node.typ = StringType
@@ -670,22 +693,22 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
     node.typ = Type(kind: T.Simple, label: node.children[0].label)
   of Sequence:
     for child in node.children:
-      analyze(child, env)
+      analyze(child, env, inBranch=inBranch)
     if node.children.len > 0:
       node.typ = sequenceType(node.children[0].typ)
   of NimTable:
     for child in node.children:
-      analyze(child[0], env)
-      analyze(child[1], env)
+      analyze(child[0], env, inBranch=inBranch)
+      analyze(child[1], env, inBranch=inBranch)
     if node.children.len > 0:
       node.typ = tableType(node.children[0][0].typ, node.children[0][1].typ)
   of While:
-    analyze(node.children[0], env)
+    analyze(node.children[0], env, inBranch=true)
     node.children[0] = toBool(node.children[0])
     for child in node.children[1 .. ^1]:
-      analyze(child, env)
+      analyze(child, env, inBranch=true)
   of Attribute:
-    analyze(node.children[0], env)
+    analyze(node.children[0], env, inBranch=inBranch)
     if not node.children[0].typ.isNil and node.children[0].typ.kind == Object:
       if node.children[0].typ.fields.hasKey(node.children[1].text):
         let typ = node.children[0].typ.fields[node.children[1].text]
@@ -698,7 +721,7 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
     node.typ = if env.hasKey("self"): env["self"] else: VoidType
   of BinOp:
     for child in node.children[1 .. ^1]:
-      analyze(child, env)
+      analyze(child, env, inBranch=inBranch)
     if node.children[0].label in @["and", "or", ">", "<", "==", "!=", "&&", "||", ">=", "<="]:
       node.typ = BoolType
     if node.typ == BoolType and node.children[0].label == "and":
@@ -709,9 +732,14 @@ proc analyze(node: Node, env: Env, class: Type = nil) =
   of UnaryOp:
     if node.children[0].label in @["not"]:
       node.typ = BoolType
+  of If:
+    analyze(node.children[0], env, inBranch=true)
+    node.children[0] = toBool(node.children[0])
+    for child in node.children[1 .. ^1]:
+      analyze(child, env, inBranch=true)
   else:
     for child in node.children:
-      analyze(child, env)
+      analyze(child, env, inBranch=inBranch)
 
 proc analyze(m: Module, env: Env) =
   for child in m.classes:

@@ -106,9 +106,10 @@ type
     parent*:      Env
     top*:         Env
     hasYield*:    bool
+    declarations*: Table[string, (Type, Declaration)]
 
   NodeKind* = enum
-    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, NimTable, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, NimSlice, ForIn, Docstring, Command, MacroCall, Try, ExceptHandler, Raise, Empty, Case, Of, Range, Super, Comment,
+    Class, NodeMethod, Call, Variable, Int, Send, Assign, Attribute, String, Bool, New, Nil, Float, Code, While, Import, Return, Block, ForRange, Self, If, Raw, Operator, BinOp, Char, Sequence, NimTable, Symbol, Pair, UnaryOp, Break, Yield, Index, Continue, NimSlice, ForIn, Docstring, Command, MacroCall, Try, Except, Raise, Empty, Case, Of, Range, Super, Comment,
     AugOp, ImportFrom,
     RubyConst, RubyMasgn, RubyMlhs, RubySplat, RubyIRange, RubyRegexp, RubyRegopt, 
     RubyAlias, 
@@ -423,6 +424,7 @@ proc `[]`*(e: Env, name: string): Type =
 proc `[]=`*(e: Env, name: string, typ: Type) =
   e.types[name] = typ
 
+
 proc hasKey*(e: Env, name: string): bool =
   not e.get(name).isNil
 
@@ -438,9 +440,8 @@ proc childEnv*(e: Env, label: string, args: Table[string, Type], returnType: Typ
   var argsChild = initTable[string, bool]()
   for arg, typ in args:
     argsChild[arg] = false
-  result = Env(types: args, args: argsChild, returnType: returnType, label: label, parent: e)
+  result = Env(types: args, args: argsChild, returnType: returnType, label: label, parent: e, declarations: initTable[string, (Type, Declaration)]())
   result.top = if e.isNil: result else: e.top
-
 
 proc dump*(node: Node, depth: int, typ: bool = false): string =
   if node.isNil:
