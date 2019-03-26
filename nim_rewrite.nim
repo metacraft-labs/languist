@@ -80,3 +80,18 @@ do:
     send(args["a"], "capitalizeAscii")
   dependencies: @["strutils"]
 
+rewrite do (a: Any):
+  String(a)
+do:
+  code:
+    call(variable("$"), args["a"], StringType)
+rewrite do (a: Any):
+  a["ExcludedMethods"]
+do:
+  code:
+    attribute(args["a"], "ExcludedMethods", sequenceType(StringType))
+rewrite do (a: Sequence, b: Any):
+  a.isInclude(b)
+do:
+  code:
+    binop(operator"in", args["b"], args["a"], BoolType)

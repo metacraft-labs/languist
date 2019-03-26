@@ -6,13 +6,14 @@ if paramCount() != 1 and paramCount() != 3:
        "rb2nim <filename pattern> <target_folder> <command> / <file>" 
   quit(0)
 
-var filename = paramStr(1)
+var first = paramStr(1)
+var filename = first
 var targetFolder = ""
 var command = ""
 
 
-if paramCount() == 1:
-  if filename == "test":
+if paramCount() == 1 and first != "last":
+  if first == "test":
     # all files in test
     # run the single test
     # rewriting the same lang_traces.json
@@ -57,14 +58,15 @@ if paramCount() == 1:
     if status == 130:
       quit(status)
 else:
-  targetFolder = expandFilename(paramStr(2))
-  command = paramStr(3)
-  let deduckt_exe = getHomedir() / "ruby-deduckt" / "exe" / "ruby-deduckt"
-  # echo &"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}"
-  let status = execCmd(&"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}")
+  if first != "last":
+    targetFolder = expandFilename(paramStr(2))
+    command = paramStr(3)
+    let deduckt_exe = getHomedir() / "ruby-deduckt" / "exe" / "ruby-deduckt"
+    # echo &"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}"
+    let status = execCmd(&"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}")
 
-  if status == 130:
-    quit(status)
+    if status == 130:
+      quit(status)
 
 let path = getEnv("RB2NIM_CONFIG", "")
 var config = Config(imports: @[], indent: 2, name: "default config")

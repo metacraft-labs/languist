@@ -14,6 +14,7 @@ template ensure(k: untyped): untyped =
 
 let nilNode = nkNilLit.newTree()
 let emptyNode = newNode(nkEmpty)
+var methodNodes: seq[Node] = @[]
 
 macro generateIdent(s: untyped): untyped =
   result = quote:
@@ -149,7 +150,9 @@ proc generateForward(generator: Generator, function: Node): PNode =
     echo function.returnType.label
   else:
     echo function.returnType.kind
-  if function.label.startsWith("on"):
+  if function.label == "message":
+    function.returnType = StringType
+  elif function.label.startsWith("on"):
     function.returnType = VoidType # HACK
   let args = generator.generateArgs(function.args, function.typ, function.returnType)
 
@@ -219,6 +222,7 @@ proc generateMethod(generator: Generator, met: Node): PNode =
 
   result = generator.generateForward(met)
 
+  methodNodes.add(met)
   var children = nkStmtList.newTree()
   for child in met.code:
     children.add(emitNode(child))
@@ -370,7 +374,10 @@ proc generateCall(generator: Generator, node: Node): PNode =
   if node[0].kind == Variable and node[0].label == "include":
     result = nkImportStmt.newTree()
   else:
-    result = nkCall.newTree(emitNode(node[0]))
+    if node[0].kind == Variable and node[0].label == "$":
+      result = nkPrefix.newTree(generateDirectIdent("$"))
+    else:
+      result = nkCall.newTree(emitNode(node[0]))
   for i, arg in node.children:
     if i > 0:
       result.add(emitNode(arg))
@@ -750,6 +757,7 @@ proc generate*(generator: Generator, module: Module, config: Config): string =
   generator.methods = newNode(nkStmtList)
   generator.global = newNode(nkStmtList)
   generator.main = newNode(nkStmtList)
+  methodNodes = @[]
 
   # mercy!
   echo config
@@ -770,8 +778,12 @@ proc generate*(generator: Generator, module: Module, config: Config): string =
     else:
       generator.main.add(emitNode(b))
 
-  var forward: seq[Node] = @[]
-
+  var forward = nkStmtList.newTree()
+  for node in methodNodes:
+    echo node.label
+    if not node.label.startsWith("on") and node.label notin @["message"]:
+      forward.add(generator.generateForward(node))
+  generator.methods = nkStmtList.newTree(forward, generator.methods)
   var program: PNode
   for label, function in rewriteGenerator:
     edump label

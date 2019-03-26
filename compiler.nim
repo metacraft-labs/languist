@@ -1,4 +1,4 @@
-import types, macros, strformat, strutils, sequtils, ast_dsl, tables, json, gen_kind, sets, json, macros, terminal, helpers, os, sugar
+import types, strformat, strutils, sequtils, ast_dsl, tables, json, gen_kind, sets, json, macros, terminal, helpers, os, osproc, sugar
 
 proc rewriteType*(traceDB: TraceDB, label: string, typ: Type): Type =
   result = typ
@@ -200,7 +200,9 @@ proc startPath*(db: TraceDB): string =
     result = maybeResult
 
 
-proc accepts(l: Type, r: Type): bool =
+func accepts(l: Type, r: Type): bool =
+  # dump l
+  # dump r
   if l.kind == T.Any:
     return true
   elif l.kind == T.Method and l.kind == r.kind and l.returnType.isNil:
@@ -208,9 +210,11 @@ proc accepts(l: Type, r: Type): bool =
   else:
     return l == r    
 
+proc normalize(label: string): string =
+  camelCase(label)
 
 proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): bool =
-  if l.kind == BinOp and r.kind == BinOp:
+  if l.kind == Send and r.kind == Send:
     edump dump(l, 0, true)
     edump dump(r, 0, true)
   if l.kind == Variable:
@@ -229,17 +233,19 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
     else:
       if l.label == "self" and r.kind == Self:
         return true
-      return l.label == r.label
+      return l.label == r.label.normalize
   if l.kind == Operator and r.kind in {Variable, Operator}:
-    return l.label == r.label
+    return l.label == r.label.normalize
   
   if l.kind != r.kind:
     return false
   case l.kind:
   of Variable, Operator, RubyConst:
-    result = l.label == r.label
+    edump  l.label
+    edump r.label.normalize
+    result = l.label == r.label.normalize
   of String, Docstring:
-    result = l.text == r.text
+    result = l.text == r.text.normalize
   of Symbol:
     result = l.text == r.text
   of Int:
@@ -262,8 +268,8 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
       edump i
       return false
   result = true
-  if l.kind == BinOp and r.kind == BinOp:
-    edump result
+  if l.kind == Send and r.kind == Send:
+    dump result
   
 proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
   result = @[]
@@ -411,6 +417,11 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)], isOutputArg: b
     of nnkInfix:
       call = "binop"
       sons[0][0] = ident("operator")
+    of nnkBracketExpr:
+      call = "index"
+      if sons[1].kind == nnkStrLit:
+        let textNode = sons[1]
+        sons[1] = quote do: Node(kind: String, text: `textNode`)
     else:
       call = "unknown"
     result = nnkCall.newTree(ident(call))
@@ -788,9 +799,13 @@ include generator
 proc generateCode(traceDB: TraceDB) =
   for i, input in traceDB.modules:
     let path = traceDB.paths[i]
-    let newPath = traceDB.targetFolder / path.changeFileExt("nim").splitFile[1] & ".nim"
+    let nimPath = path.changeFileExt("nim")
+    let folder = nimPath.parentDir.splitFile[1]
+    let base = nimPath.splitFile[1]
+    let newPath = traceDB.targetFolder / folder / base & ".nim"
     var generator = Generator(indent: 2, v: V019, module: Module(), identifierCollisions: initSet[string]())
     var output = generator.generate(input, traceDB.config)
+    createDir traceDB.targetFolder / folder
     writeFile(newPath, output)
     echo &"write {newPath}"
 
