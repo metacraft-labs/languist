@@ -114,8 +114,6 @@ proc generateType(generator: Generator, typ: Type): PNode =
         typLabel = "typedesc"
       elif typLabel == "bytes":
         typLabel = "cstring"
-      elif typLabel == "Sequence":
-        typLabel = "seq"
       elif typLabel in @["Int", "Void", "Bool", "String"]:
         typLabel = typLabel.toLowerAscii()
       result = generateIdent(typLabel)
@@ -124,13 +122,19 @@ proc generateType(generator: Generator, typ: Type): PNode =
       for element in typ.elements:
         result.add(generator.generateType(element))
     of T.Compound:
-      result = nkBracketExpr.newTree(generateIdent(typ.original.label))
+      var a = typ.original.label
+      if a == "Sequence":
+        a = "seq"
+      result = nkBracketExpr.newTree(generateIdent(a))
       for arg in typ.args:
         result.add(generator.generateType(arg))
     of T.Generic:
       result = nkBracketExpr.newTree(generateIdent(typ.label))
       for arg in typ.genericArgs:
-        result.add(generateIdent(arg))
+        var a = arg
+        if a == "Sequence":
+          a = "seq"
+        result.add(generateIdent(a))
     of T.Macro:
       result = nkCall.newTree(generateIdent(typ.label))
       for arg in typ.macroArgs:
@@ -156,6 +160,8 @@ proc generateForward(generator: Generator, function: Node): PNode =
     function.returnType = StringType
   elif function.label.startsWith("on"):
     function.returnType = VoidType # HACK
+  elif function.label.startsWith("check"):
+    function.returnType = VoidType
   if function.typ.isNil:
     dump function
   let args = generator.generateArgs(function.args, function.typ, function.returnType)
@@ -370,6 +376,7 @@ proc generateCode(generator: Generator, node: Node): PNode =
       result.add(generator.generateGroup(group))
     else:
       result.add(emitNode(child))
+
     z += 1
 
 proc generateSend(generator: Generator, node: Node): PNode =

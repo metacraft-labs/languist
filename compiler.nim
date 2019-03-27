@@ -229,9 +229,6 @@ func compatible(l: string, r: string): bool =
 
 
 proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): bool =
-  # if l.kind == Send and l.children[1].text == "each":
-  #   dump l
-  #   dump r
   if l.kind == Variable:
     var replace = false
     var typ: Type = nil
@@ -252,12 +249,14 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
 
   if l.kind == Operator and r.kind in {Variable, Operator}:
     return compatible(l.label, r.label)
+  if l.kind == String and r.kind in {String, Symbol}:
+    return compatible(l.text, r.text)
   if l.kind != r.kind:
     return false
   case l.kind:
   of Variable, Operator, RubyConst:
     result = compatible(l.label, r.label)
-  of String, Docstring:
+  of Docstring:
     result = compatible(l.text, r.text)
   of Symbol:
     result = compatible(l.text, r.text)
@@ -492,7 +491,9 @@ proc generateInput(input: NimNode): (NimNode, seq[(string, NimNode)]) =
       res.add(n)
       replaced2.add(($label, typ))
 
-  let h = compileNode(input[^1], replaced2)
+  var h = compileNode(input[^1], replaced2)
+  if h.kind == nnkStrLit:
+    h = quote do: Node(kind: String, text: `h`)
   var n = quote:
     `help`.input = `h`
   res.add(n)

@@ -49,3 +49,9 @@ do:
     var arg = args["a"]
     attribute(arg, "typ", Type(kind: Simple, label: "Type"))
 
+
+rewrite do ():
+  "or_asgn"
+do:
+  code:
+    Node(kind: String, text: "operator_assignment")
