@@ -1,5 +1,6 @@
 {
     "indent": 2,
     "imports": ["ruby"],
-    "name": "test"
+    "name": "test",
+    "ignoreMethods": []
 }

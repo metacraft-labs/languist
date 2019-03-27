@@ -29,3 +29,12 @@ do:
     var res = Node(kind: MacroCall, children: @[variable("nodeMatcher"), variableGenBlock(args["x"].text), args["y"]], typ: VoidType)
     edump rewrites[1].genBlock
     res
+
+# my mistake
+rewrite do (x: Symbol, y: String):
+  def_node_matcher(x, y)
+do:
+  code:
+    var res = Node(kind: MacroCall, children: @[variable("nodeMatcher"), variableGenBlock(args["x"].text), args["y"]], typ: VoidType)
+    dump rewrites[1].genBlock
+    res

@@ -87,7 +87,7 @@ type
                                                           # if there is already a different existing identifier
                                                           # for that idiomatic one, toggle collision to true
   TraceDB* = ref object
-    root*:         JsonNode
+    root*:        JsonNode
     paths*:       seq[string]
     modules*:     seq[Module]
     types*:       Table[string, Type]
@@ -192,6 +192,7 @@ type
     methods*:                PNode
     main*:                   PNode
     top*:                    PNode
+    config*:                 Config
 
   RewriteRule* = ref object
     input*:   Node
@@ -210,6 +211,7 @@ type
     indent*: int
     imports*: seq[string]
     name*: string
+    ignoreMethods*: seq[string]
 
 let endl* = "\n"
 

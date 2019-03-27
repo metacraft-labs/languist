@@ -1,5 +1,6 @@
 import types, strformat, strutils, sequtils, ast_dsl, tables, json, gen_kind, sets, json, macros, terminal, helpers, os, osproc, sugar
 
+proc underscore(label: string): string
 proc rewriteType*(traceDB: TraceDB, label: string, typ: Type): Type =
   result = typ
   eecho &"TYP {label}"
@@ -132,6 +133,7 @@ proc loadMethod*(m: JsonNode, traceDB: TraceDB, isBlock: bool = false): Node =
     eecho "BLOCK"
     eecho result.typ
 
+
 proc loadClass*(m: JsonNode, traceDB: TraceDB): Node =
   result = Node(kind: Class)
   result.label = m{"label"}.getStr()
@@ -201,8 +203,6 @@ proc startPath*(db: TraceDB): string =
 
 
 func accepts(l: Type, r: Type): bool =
-  # dump l
-  # dump r
   if l.kind == T.Any:
     return true
   elif l.kind == T.Method and l.kind == r.kind and l.returnType.isNil:
@@ -213,37 +213,39 @@ func accepts(l: Type, r: Type): bool =
 proc normalize(label: string): string =
   camelCase(label)
 
+func compatible(l: string, r: string): bool =
+  if '_' notin l:
+    l == r.normalize
+  else:
+    l == r
+
+
 proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): bool =
-  if l.kind == Send and r.kind == Send:
-    edump dump(l, 0, true)
-    edump dump(r, 0, true)
   if l.kind == Variable:
     var replace = false
+    var typ: Type = nil
     for member in replaced:
       if member.label == l.label:
         replace = true
+        typ = member.typ
         break
     if replace:
-      edump l.typ
-      edump dump(r, 0, true)
-      if not l.typ.isNil and not l.typ.accepts(r.typ):
+      if not typ.isNil and not typ.accepts(r.typ):
         return false
       else:
         return true
     else:
       if l.label == "self" and r.kind == Self:
         return true
-      return l.label == r.label.normalize
+      return compatible(l.label, r.label)
+
   if l.kind == Operator and r.kind in {Variable, Operator}:
-    return l.label == r.label.normalize
-  
+    return compatible(l.label, r.label)
   if l.kind != r.kind:
     return false
   case l.kind:
   of Variable, Operator, RubyConst:
-    edump  l.label
-    edump r.label.normalize
-    result = l.label == r.label.normalize
+    result = compatible(l.label, r.label)
   of String, Docstring:
     result = l.text == r.text.normalize
   of Symbol:
@@ -263,13 +265,11 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
   if l.children.len != r.children.len:
     return false
   for i in 0 .. < l.children.len:
-    edump i
+    dump i
     if not l.children[i].find(r.children[i], replaced):
-      edump i
+      dump l.children[i]
       return false
   result = true
-  if l.kind == Send and r.kind == Send:
-    dump result
   
 proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
   result = @[]
@@ -310,12 +310,16 @@ proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): Node
   if not node.isFinished:
     b = rewrite.find(node)
   var newNode = node
-  if node.kind == Call and node.children[0].kind == Variable and node.children[0].label in rewrites[1].genBlock:
+  if node.kind == Send and node.children[0].kind == Self:
+    echo node.children[1].text
+    echo rewrites[1].genBlock
+  if node.kind == Call and node.children[0].kind == Variable and node.children[0].label.underscore in rewrites[1].genBlock:
     node.kind = MacroCall # = genKind(Node, MacroCall)
-    #echo dump(node, 0, true)
-    #echo dump(node.children[^1], 0, true)
     if node.children[^1].kind == Block:
       node.children[^1] = Node(kind: Code, children: node.children[^1].code)
+  elif node.kind == Send and node.children[0].kind == Self and node.children[1].text.underscore in rewrites[1].genBlock:
+    node.kind = Call
+    node.children = @[Node(kind: Variable, label: node.children[1].text)].concat(node.children[2 .. ^1])
   if b.len > 0:
     var c = b[0]
     for a in b:
@@ -617,6 +621,8 @@ proc underscore(label: string): string =
       result.add(($c).toLowerAscii)
     else:
       result.add($c)
+  if result.endsWith("?"):
+    result = "is_" & result[0 .. ^2]
 
 proc analyze(node: Node, env: Env, class: Type = nil, inBranch: bool = false) =
   case node.kind:
@@ -743,6 +749,7 @@ proc analyze(node: Node, env: Env, class: Type = nil, inBranch: bool = false) =
   of UnaryOp:
     if node.children[0].label in @["not"]:
       node.typ = BoolType
+    echo "UNARY"
   of If:
     analyze(node.children[0], env, inBranch=true)
     node.children[0] = toBool(node.children[0])

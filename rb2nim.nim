@@ -67,7 +67,8 @@ else:
 
     if status == 130:
       quit(status)
-
+  else:
+    targetFolder = getHomeDir() / "nim-rubocop" / "cops"
 let path = getEnv("RB2NIM_CONFIG", "")
 var config = Config(imports: @[], indent: 2, name: "default config")
 if path.len > 0:

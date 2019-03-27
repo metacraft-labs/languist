@@ -220,9 +220,14 @@ proc generateArgs(generator: Generator, nodes: seq[Node], typ: Type, returnType:
 proc generateMethod(generator: Generator, met: Node): PNode =
   assert met.kind in {NodeMethod, Block}
 
+  for label in generator.config.ignoreMethods:
+    if met.label.startsWith(label):
+      return emptyNode
+  
   result = generator.generateForward(met)
 
-  methodNodes.add(met)
+  if met.kind == NodeMethod:
+    methodNodes.add(met)
   var children = nkStmtList.newTree()
   for child in met.code:
     children.add(emitNode(child))
@@ -545,6 +550,7 @@ proc generatePair(generator: Generator, node: Node): PNode =
     result = emptyNode
 
 proc generateUnaryOp(generator: Generator, node: Node): PNode =
+  echo node
   result = nkPrefix.newTree(generateIdent(node[0].label & " "), emitNode(node[1]))
 
 proc generateExprColonExpr(generator: Generator, node: Node): PNode =
@@ -757,6 +763,7 @@ proc generate*(generator: Generator, module: Module, config: Config): string =
   generator.methods = newNode(nkStmtList)
   generator.global = newNode(nkStmtList)
   generator.main = newNode(nkStmtList)
+  generator.config = config
   methodNodes = @[]
 
   # mercy!
@@ -780,7 +787,6 @@ proc generate*(generator: Generator, module: Module, config: Config): string =
 
   var forward = nkStmtList.newTree()
   for node in methodNodes:
-    echo node.label
     if not node.label.startsWith("on") and node.label notin @["message"]:
       forward.add(generator.generateForward(node))
   generator.methods = nkStmtList.newTree(forward, generator.methods)
