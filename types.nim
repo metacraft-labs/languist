@@ -97,6 +97,7 @@ type
     rewrite*:     Rewrite
     targetFolder*: string
     config*:      Config
+    methods*:     Table[string, Type]
   
   Env* = ref object
     types*:       Table[string, Type]
@@ -613,6 +614,7 @@ proc deepCopy*(a: Node): Node =
 
   else:
     discard
+  # echo a
   result.children = @[]
   for child in a.children:
     result.children.add(deepCopy(child))

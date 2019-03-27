@@ -132,7 +132,7 @@ proc loadMethod*(m: JsonNode, traceDB: TraceDB, isBlock: bool = false): Node =
     result.typ = Type(kind: T.Method, args: args, returnType: result.returnType)
     eecho "BLOCK"
     eecho result.typ
-
+  traceDB.methods[result.label] = result.typ
 
 proc loadClass*(m: JsonNode, traceDB: TraceDB): Node =
   result = Node(kind: Class)
@@ -170,6 +170,7 @@ proc load*(file: string, rewrite: Rewrite, targetFolder: string, config: Config)
   result.modules = @[]
   result.rewrite = rewrite
   result.config = config
+  result.methods = initTable[string, Type]()
   # result.projectDir = result.root{"@projectDir"}.getStr()
   # result.package = result.projectDir.rsplit("/", 1)[1]
   for label, m in result.root:
@@ -221,6 +222,10 @@ func compatible(l: string, r: string): bool =
 
 
 proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): bool =
+  echo l.kind
+  if l.kind == Attribute:
+    dump l
+    dump r
   if l.kind == Variable:
     var replace = false
     var typ: Type = nil
@@ -247,9 +252,11 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
   of Variable, Operator, RubyConst:
     result = compatible(l.label, r.label)
   of String, Docstring:
-    result = l.text == r.text.normalize
+    dump l.text
+    dump r.text
+    result = compatible(l.text, r.text)
   of Symbol:
-    result = l.text == r.text
+    result = compatible(l.text, r.text)
   of Int:
     result = l.i == r.i
   of Bool:
@@ -265,9 +272,9 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
   if l.children.len != r.children.len:
     return false
   for i in 0 .. < l.children.len:
-    dump i
+    edump i
     if not l.children[i].find(r.children[i], replaced):
-      dump l.children[i]
+      edump l.children[i]
       return false
   result = true
   
@@ -310,9 +317,6 @@ proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): Node
   if not node.isFinished:
     b = rewrite.find(node)
   var newNode = node
-  if node.kind == Send and node.children[0].kind == Self:
-    echo node.children[1].text
-    echo rewrites[1].genBlock
   if node.kind == Call and node.children[0].kind == Variable and node.children[0].label.underscore in rewrites[1].genBlock:
     node.kind = MacroCall # = genKind(Node, MacroCall)
     if node.children[^1].kind == Block:
@@ -667,17 +671,34 @@ proc analyze(node: Node, env: Env, class: Type = nil, inBranch: bool = false) =
     node.code = declarations.concat(node.code)
     if node.code[^1].typ.isNil:
       node.returnType = VoidType
-  of Send:
+
+  of Send, Call:
     analyze(node.children[0], env, inBranch=inBranch)
-    if node.children[1].text.endsWith("?"):
-      node.children[1].text = "is_" & node.children[1].text[0 .. ^2]
-    for arg in node.children[2 .. ^1]:
-      analyze(arg, env, inBranch=inBranch)
-  of Call:
-    analyze(node.children[0], env, inBranch=inBranch)
-    for arg in node.children[1 .. ^1]:
-      analyze(arg, env, inBranch=inBranch)
-    if node.children[0].kind == Variable and node.children[0].label == "include":
+    var children = node.children[1 .. ^1]
+    var newChildren: seq[Node]
+    if node.kind == Send:
+      if node.children[1].text.endsWith("?"):
+        node.children[1].text = "is_" & node.children[1].text[0 .. ^2]
+      children = node.children[2 .. ^1]
+      newChildren.add(node.children[1])
+    for arg in children:
+      if arg.kind != RubySplat:
+        analyze(arg, env, inBranch=inBranch)
+        newChildren.add(arg)
+      else:
+        assert arg.children.len == 1
+        let label = if node.kind == Call: node.children[0].label else: node.children[1].text
+        dump label
+        if env.hasKey(label):
+          let typ = env[label]
+          if typ.kind == Method:
+            let length = if node.kind == Call: typ.args.len else: typ.args.len - 1
+            for i in 0 ..< length:
+              let childType = if not arg.children[0].typ.isNil and arg.children[0].typ.kind == Compound and arg.children[0].typ.args.len > 0: arg.children[0].typ.args[0] else: arg.children[0].typ
+              newChildren.add(index(arg.children[0], Node(kind: Int, i: i), childType))
+
+    node.children = @[node.children[0]].concat(newChildren)
+    if node.kind == Call and node.children[0].kind == Variable and node.children[0].label == "include":
       node.children[1].label = underscore(node.children[1].label)
   of Variable:
     if node.label.endsWith("?") and node.label.len > 1:
@@ -819,6 +840,8 @@ proc generateCode(traceDB: TraceDB) =
 
 proc compile*(traceDB: TraceDB) =
   var env = Env(parent: nil, types: initTable[string, Type]())
+  for label, t in traceDB.methods:
+    env[label] = t
   # assign type names
   analyzeCode(traceDB, env)
 
@@ -828,7 +851,3 @@ proc compile*(traceDB: TraceDB) =
   rewriteCode(traceDB, rewritenim)
 
   traceDB.generateCode 
-
-#var traceDB = load(if paramCount() == 0: "lang_traces.json" else: paramStr(1), rewriteinputruby, "/home/alehander42/nimterop/")
-
-#compile(traceDB)

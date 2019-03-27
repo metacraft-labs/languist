@@ -230,14 +230,12 @@ macro command*(op: untyped, arg: untyped, code: untyped, t: untyped): untyped =
   result = quote:
     Node(kind: Command, children: @[`op`, `arg`, `code`], typ:  `t`, isFinished: true)
 
-macro index*(arg: untyped, b: untyped): untyped =
+macro index*(arg: untyped, b: untyped, t: untyped = nil): untyped =
   var i = b
   i = i.expandLiteral()
+  var typeNode = if t.isNil: quote do: `arg`.typ else: t
   result = quote:
-    var typ = if `arg`.typ.isNil: VoidType else: `arg`.typ
-    if typ.args.len > 0:
-      typ = typ.args[0]
-    Node(kind: Index, children: @[`arg`, `i`], typ: typ, isFinished: true)
+    Node(kind: Index, children: @[`arg`, `i`], typ: `typeNode`, isFinished: true)
 
 template operator*(op: untyped, ignore: untyped = nil): untyped =
   Node(

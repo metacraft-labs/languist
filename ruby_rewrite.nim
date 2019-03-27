@@ -78,3 +78,10 @@ do:
   code:
     Node(kind: Empty)
 
+rewrite do (a: Any):
+  a.to_a
+do:
+  code:
+    # can't type TODO
+    let typ = sequenceType(args["a"].typ)
+    send(args["a"], "toSeq")
