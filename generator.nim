@@ -114,6 +114,8 @@ proc generateType(generator: Generator, typ: Type): PNode =
         typLabel = "typedesc"
       elif typLabel == "bytes":
         typLabel = "cstring"
+      elif typLabel == "Sequence":
+        typLabel = "seq"
       elif typLabel in @["Int", "Void", "Bool", "String"]:
         typLabel = typLabel.toLowerAscii()
       result = generateIdent(typLabel)
@@ -154,6 +156,8 @@ proc generateForward(generator: Generator, function: Node): PNode =
     function.returnType = StringType
   elif function.label.startsWith("on"):
     function.returnType = VoidType # HACK
+  if function.typ.isNil:
+    dump function
   let args = generator.generateArgs(function.args, function.typ, function.returnType)
 
   var name = generateIdent(function.label)
@@ -204,7 +208,7 @@ proc generateForward(generator: Generator, function: Node): PNode =
 
 proc generateArgs(generator: Generator, nodes: seq[Node], typ: Type, returnType: Type): PNode =
   var iTyp = typ
-  if typ.kind == T.MethodOverload:
+  if not typ.isNil and typ.kind == T.MethodOverload:
     iTyp = typ.overloads[0]
   result = nkFormalParams.newTree()
   result.add(generator.generateType(returnType))

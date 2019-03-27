@@ -203,10 +203,17 @@ proc startPath*(db: TraceDB): string =
     result = maybeResult
 
 
-func accepts(l: Type, r: Type): bool =
+proc accepts(l: Type, r: Type): bool =
+  if l.isNil or r.isNil:
+    return false
+  # dump l
+  # dump r
+  # dump l.kind == T.Generic and r.kind == T.Compound and l.label == r.original.label
   if l.kind == T.Any:
     return true
   elif l.kind == T.Method and l.kind == r.kind and l.returnType.isNil:
+    return true
+  elif l.kind == T.Generic and r.kind == T.Compound and l.label == r.original.label:
     return true
   else:
     return l == r    
@@ -222,10 +229,9 @@ func compatible(l: string, r: string): bool =
 
 
 proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): bool =
-  echo l.kind
-  if l.kind == Attribute:
-    dump l
-    dump r
+  # if l.kind == Send and l.children[1].text == "each":
+  #   dump l
+  #   dump r
   if l.kind == Variable:
     var replace = false
     var typ: Type = nil
@@ -252,8 +258,6 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
   of Variable, Operator, RubyConst:
     result = compatible(l.label, r.label)
   of String, Docstring:
-    dump l.text
-    dump r.text
     result = compatible(l.text, r.text)
   of Symbol:
     result = compatible(l.text, r.text)
@@ -396,6 +400,9 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)], isOutputArg: b
         if label == e[0]:
           return nnkBracketExpr.newTree(ident"args", newLit($node))
       return nnkCall.newTree(ident"variable", newLit($node), returnType)
+  of nnkAccQuoted:
+    # Praise the Lord!
+    return compileNode(node[0], replaced, isOutput)
   of nnkStmtList:
     return compileNode(node[0], replaced, isOutput)
   else:
@@ -527,7 +534,6 @@ macro rewrite*(input: untyped, output: untyped): untyped =
     result = quote:
       rewriteList.types[`input`] = `node`
       rewriteList.types[`input`].rewritten = true
-    echo result.repr
     return result
   let (inputNode, replaced) = generateInput(input)
   result = inputNode

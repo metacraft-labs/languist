@@ -38,3 +38,14 @@ do:
     var res = Node(kind: MacroCall, children: @[variable("nodeMatcher"), variableGenBlock(args["x"].text), args["y"]], typ: VoidType)
     dump rewrites[1].genBlock
     res
+
+# we need this for : Node
+var NodeType* = Type(kind: Simple, label: "Node")
+
+rewrite do (a: Node):
+  a.`type`
+do:
+  code:
+    var arg = args["a"]
+    attribute(arg, "typ", Type(kind: Simple, label: "Type"))
+

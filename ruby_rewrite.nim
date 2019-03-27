@@ -31,16 +31,16 @@ do:
     if args["y"].args.len == 1:
       forin(args["y"].args[0], args["x"], Node(kind: Code, children: args["y"].code))
     else:
-      forin(args["y"].args[0], args["y"].args[1], args["x"], Node(kind: Code, children: args["y"].code)) 
+      forin(args["y"].args[0], args["y"].args[1], args["x"], Node(kind: Code, children: args["y"].code))
       # TODO matching more exact , but it doesnt really matter for now
   
   dependencies: @["tables"]
 
-rewrite do (x: Sequence, y: Method):
+rewrite do (x: Sequence, y: Any):
   x.each(y)
 do:
   code:
-    forin(args["y"].args[0], args["x"], Node(kind: Block, children: args["y"].code))
+    forin(args["y"].args[0], args["x"], Node(kind: Code, children: args["y"].code))
 
 rewrite do(x: Sequence, y: Method):
   x.select(y)

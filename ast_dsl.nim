@@ -56,6 +56,7 @@ macro attribute*(base: untyped, attr: untyped, typ: untyped = nil): untyped =
         `baseL`,
         Node(kind: String, text: `attr`)],
       isFinished: true)
+  echo result.repr
 
 macro sequence*(args: varargs[untyped]): untyped =
   var elements = quote:

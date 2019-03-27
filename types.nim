@@ -614,7 +614,7 @@ proc deepCopy*(a: Node): Node =
 
   else:
     discard
-  # echo a
+  # 7 a
   result.children = @[]
   for child in a.children:
     result.children.add(deepCopy(child))
