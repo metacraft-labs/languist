@@ -150,12 +150,12 @@ proc generateForward(generator: Generator, function: Node): PNode =
   assert function.kind in {NodeMethod, Block}
 
   eecho function.typ.isNil
-  if function.returnType.isNil:
-    echo "nil"
-  elif function.returnType.kind == Simple:
-    echo function.returnType.label
-  else:
-    echo function.returnType.kind
+  #if function.returnType.isNil:
+  #  echo "nil"
+  #elif function.returnType.kind == Simple:
+  #  echo function.returnType.label
+  #else:
+  #  echo function.returnType.kind
   if function.label == "message":
     function.returnType = StringType
   elif function.label.startsWith("on"):
@@ -163,11 +163,11 @@ proc generateForward(generator: Generator, function: Node): PNode =
   elif function.label.startsWith("check"):
     function.returnType = VoidType
   if function.typ.isNil:
-    dump function
+    edump function
   if generator.lang == Lang.Python:
     function.returnType = function.typ.returnType
-  echo function.label
-  echo function.returnType
+  # echo function.label
+  # echo function.returnType
   let args = generator.generateArgs(function.args, function.typ, function.returnType)
 
   var name = generateIdent(function.label)
@@ -222,7 +222,8 @@ proc generateArgs(generator: Generator, nodes: seq[Node], typ: Type, returnType:
     iTyp = typ.overloads[0]
   result = nkFormalParams.newTree()
   result.add(generator.generateType(returnType))
-  echo returnType
+  # echo returnType
+  var z = 0
   for arg in nodes:
     var argTyp = if z < len(iTyp.args): iTyp.args[z] else: VoidType
     result.add(nkIdentDefs.newTree(
@@ -566,7 +567,6 @@ proc generatePair(generator: Generator, node: Node): PNode =
     result = emptyNode
 
 proc generateUnaryOp(generator: Generator, node: Node): PNode =
-  echo node
   result = nkPrefix.newTree(generateIdent(node[0].label & " "), emitNode(node[1]))
 
 proc generateExprColonExpr(generator: Generator, node: Node): PNode =
@@ -783,7 +783,7 @@ proc generate*(generator: Generator, module: Module, config: Config): string =
   methodNodes = @[]
 
   # mercy!
-  echo config
+  # echo config
   for i in config.imports:
     generator.top.add(generator.generateImport(Node(kind: Code, children: @[variable(i)])))
   if len(module.imports) > 0:

@@ -4,6 +4,7 @@ import
 
 type
   E* = ref object
+method e*(self: E; b: int): void
 method e*(self: E; b: int): void =
   var c: int
   if b > 0:

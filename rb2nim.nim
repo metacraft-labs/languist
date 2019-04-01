@@ -33,15 +33,20 @@ if paramCount() == 1 and first != "last":
           continue
         case lang:
         of Lang.Ruby:
-          command = &"rbenv exec ruby {ruby_deduckt_exe} -m {filename} -o {targetFolder} test/{filename}.rb"
+          echo &"rbenv exec bundle exec ruby {ruby_deduckt_exe} -m {filename} -o {targetFolder} test/{filename}.rb"
+          command = &"rbenv exec bundle exec ruby {ruby_deduckt_exe} -m {filename} -o {targetFolder} test/{filename}.rb"
         of Lang.Python:
           command = &"env DEDUCKT_OUTPUT_DIR={targetFolder} python3 {python_deduckt_exe} test/{filename}.py"
+          echo command
         debug = false
         var status = execCmd(&"{command} > /dev/null 2>&1")
         echo status
         if status == 130:
           quit(status)
-        var traceDB = load(targetFolder / "lang_traces.json", targetFolder, config, lang)
+        elif status != 0:
+          echo "ERROR"
+          continue
+        var traceDB = load(targetFolder / "lang_traces.json", "", config, lang)
         compile(traceDB)
         status = execCmd(&"nim c test/{filename}.nim > /dev/null 2>&1")
         echo status
@@ -56,7 +61,7 @@ if paramCount() == 1 and first != "last":
           output = "test/python"
           discard execCmd(&"python3 test/{filename}.py > {output}")
         discard execCmd(&"test/{filename} > test/nim")
-
+        targetFolder = ""
         if readFile("test/nim") == readFile(output):
           echo "OK"
         else:
@@ -96,6 +101,10 @@ var config = Config(imports: @[], indent: 2, name: "default config")
 if path.len > 0:
   config = parseJson(readFile(path)).to(Config)
 
-var traceDB = load(targetFolder / "lang_traces.json", targetFolder, config, lang)
+var dir = targetFolder
+if targetFolder == "test":
+  dir = ""
+
+var traceDB = load(targetFolder / "lang_traces.json", dir, config, lang)
 
 compile(traceDB)

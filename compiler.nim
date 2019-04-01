@@ -133,8 +133,8 @@ proc loadMethod*(m: JsonNode, traceDB: TraceDB, isBlock: bool = false): Node =
   if result.typ.isNil or traceDB.lang == Lang.Python:
     var args = result.args.mapIt(it.typ)
     result.typ = Type(kind: T.Method, args: args, returnType: result.returnType)
-  echo result.label
-  echo result.typ
+  # echo result.label
+  # echo result.typ
   if traceDB.lang == Lang.Python:
     result.typ.returnType = result.returnType
   traceDB.methods[result.label] = result.typ
