@@ -98,6 +98,7 @@ type
     targetFolder*: string
     config*:      Config
     methods*:     Table[string, Type]
+    lang*:        Lang
   
   Env* = ref object
     types*:       Table[string, Type]
@@ -194,6 +195,7 @@ type
     main*:                   PNode
     top*:                    PNode
     config*:                 Config
+    lang*:                   Lang
 
   RewriteRule* = ref object
     input*:   Node
@@ -213,6 +215,8 @@ type
     imports*: seq[string]
     name*: string
     ignoreMethods*: seq[string]
+
+  Lang* = enum Ruby, Python
 
 let endl* = "\n"
 
@@ -614,11 +618,20 @@ proc deepCopy*(a: Node): Node =
 
   else:
     discard
-  # 7 a
+  # echo a
   result.children = @[]
   for child in a.children:
     result.children.add(deepCopy(child))
   result.typ = deepCopy(a.typ)
+
+proc getLang*(name: string): Lang =
+  case name:
+  of ".py":
+    Lang.Python
+  of ".rb":
+    Lang.Ruby
+  else:
+    Lang.Ruby
 
 proc camelCase*(label: string): string =
   var remainder = label
@@ -643,3 +656,4 @@ proc translateIdentifier*(label: string, identifierCollisions: HashSet[string]):
     return translated
   else:
     return label
+

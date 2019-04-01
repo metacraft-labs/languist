@@ -6,13 +6,14 @@ if paramCount() != 1 and paramCount() != 3:
        "rb2nim <filename pattern> <target_folder> <command> / <file>" 
   quit(0)
 
-let deduckt_exe = getEnv("RB2NIM_DEDUCKT_PATH", getHomedir() / "ruby-deduckt") / "exe" / "ruby-deduckt"
-echo deduckt_exe
+let ruby_deduckt_exe = getEnv("RB2NIM_RUBY_DEDUCKT_PATH", "") / "exe" / "ruby-deduckt"
+let python_deduckt_exe = getEnv("RB2NIM_PYTHON_DEDUCKT_PATH", "") / "deduckt" / "main.py"
+echo ruby_deduckt_exe
 var first = paramStr(1)
 var filename = first
 var targetFolder = ""
 var command = ""
-
+var lang: Lang
 
 if paramCount() == 1 and first != "last":
   if first == "test":
@@ -22,27 +23,41 @@ if paramCount() == 1 and first != "last":
     var config = parseJson(readFile("test.json")).to(Config)
 
     for file in walkDir("test", true):
-      if file.path.endswith(".rb"):
+      if file.path.endswith(".rb") or file.path.endswith(".py"):
         targetFolder = "test"
-        filename = file.path.splitFile()[1]
+        var extension: string
+        var b: string
+        (b, filename, extension) = file.path.splitFile()
+        lang = getLang(extension)
         if filename in @["class", "love"]:
           continue
-        echo file.path
-        command = &"ruby {deduckt_exe} -m {filename} -o {targetFolder} test/{filename}.rb"
+        case lang:
+        of Lang.Ruby:
+          command = &"rbenv exec ruby {ruby_deduckt_exe} -m {filename} -o {targetFolder} test/{filename}.rb"
+        of Lang.Python:
+          command = &"env DEDUCKT_OUTPUT_DIR={targetFolder} python3 {python_deduckt_exe} test/{filename}.py"
         debug = false
         var status = execCmd(&"{command} > /dev/null 2>&1")
         echo status
         if status == 130:
           quit(status)
-        var traceDB = load(targetFolder / "lang_traces.json", rewriteinputruby, targetFolder, config)
+        var traceDB = load(targetFolder / "lang_traces.json", targetFolder, config, lang)
         compile(traceDB)
         status = execCmd(&"nim c test/{filename}.nim > /dev/null 2>&1")
         echo status
         if status == 130:
           quit(status)
-        discard execCmd(&"ruby test/{filename}.rb > test/ruby")
+        var output = ""
+        case lang:
+        of Lang.Ruby:
+          output = "test/ruby"
+          discard execCmd(&"ruby test/{filename}.rb > {output}")
+        of Lang.Python:
+          output = "test/python"
+          discard execCmd(&"python3 test/{filename}.py > {output}")
         discard execCmd(&"test/{filename} > test/nim")
-        if readFile("test/ruby") == readFile("test/ruby"):
+
+        if readFile("test/nim") == readFile(output):
           echo "OK"
         else:
           echo "ERROR"
@@ -50,10 +65,15 @@ if paramCount() == 1 and first != "last":
         # break # TODO
     quit(0)
   else:
-    
-    targetFolder = filename.splitFile()[0]
-    let module_pattern = filename.splitFile()[1]
-    command = &"env DEDUCKT_MODULE_PATTERNS={module_pattern} DEDUCKT_OUTPUT_DIR={targetFolder} bundle exec {deduckt_exe} {filename}"
+    var module_pattern: string
+    var extension: string
+    (targetFolder, module_pattern, extension) = filename.splitFile()
+    lang = getLang(extension)
+    case lang:
+    of Lang.Ruby:
+      command = &"env DEDUCKT_MODULE_PATTERNS={module_pattern} DEDUCKT_OUTPUT_DIR={targetFolder} rbenv exec bundle exec {ruby_deduckt_exe} {filename}"
+    of Lang.Python:
+      command = &"env DEDUCKT_MODULE_PATTERNS={module_pattern} DEDUCKT_OUTPUT_DIR={targetFolder} python3 {python_deduckt_exe} {filename}"
     echo command
     let status = execCmd(command)
     if status == 130:
@@ -68,12 +88,14 @@ else:
     if status == 130:
       quit(status)
   else:
-    targetFolder = getHomeDir() / "nim-rubocop" / "cops"
+    targetFolder = getEnv("RB2NIM_FAST_RUBOCOP_PATH") / "cops" # TODO
+  lang = Lang.Ruby # TODO
+
 let path = getEnv("RB2NIM_CONFIG", "")
 var config = Config(imports: @[], indent: 2, name: "default config")
 if path.len > 0:
   config = parseJson(readFile(path)).to(Config)
 
-var traceDB = load(targetFolder / "lang_traces.json", rewriteinputruby, targetFolder, config)
+var traceDB = load(targetFolder / "lang_traces.json", targetFolder, config, lang)
 
 compile(traceDB)

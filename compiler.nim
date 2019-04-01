@@ -117,7 +117,10 @@ proc loadMethod*(m: JsonNode, traceDB: TraceDB, isBlock: bool = false): Node =
   result = Node(kind: NodeMethod)
   if isBlock:
     result = Node(kind: Block)
-  result.label = m{"label"}{"label"}.getStr()
+  if traceDB.lang == Lang.Ruby:
+    result.label = m{"label"}{"label"}.getStr()
+  else:
+    result.label = m{"label"}.getStr()
   result.args = m{"args"}.mapIt(loadNode(it, traceDB))
   result.code = m{"code"}.mapIt(loadNode(it, traceDB))
   result.isIterator = m{"isIterator"}.getBool()
@@ -127,11 +130,13 @@ proc loadMethod*(m: JsonNode, traceDB: TraceDB, isBlock: bool = false): Node =
     result.docstring = m{"docstring"}.mapIt(it.getStr())
   else:
     result.docstring = @[]
-  if result.typ.isNil:
+  if result.typ.isNil or traceDB.lang == Lang.Python:
     var args = result.args.mapIt(it.typ)
     result.typ = Type(kind: T.Method, args: args, returnType: result.returnType)
-    eecho "BLOCK"
-    eecho result.typ
+  echo result.label
+  echo result.typ
+  if traceDB.lang == Lang.Python:
+    result.typ.returnType = result.returnType
   traceDB.methods[result.label] = result.typ
 
 proc loadClass*(m: JsonNode, traceDB: TraceDB): Node =
@@ -160,7 +165,9 @@ proc loadModule*(m: JsonNode, traceDB: TraceDB, path: string): Module =
   result.main = m{"main"}.mapIt(loadNode(it, traceDB))
   result.classes = m{"classes"}.mapIt(loadClass(it, traceDB)).filterIt(not it.isNil)
 
-proc load*(file: string, rewrite: Rewrite, targetFolder: string, config: Config): TraceDB =
+var rewriteLangs*: array[Lang, Rewrite]
+
+proc load*(file: string, targetFolder: string, config: Config, lang: Lang): TraceDB =
   new(result)
   result.root = parseJson(readFile(file))
   result.types = initTable[string, Type]()
@@ -168,9 +175,10 @@ proc load*(file: string, rewrite: Rewrite, targetFolder: string, config: Config)
   result.paths = @[]
   result.targetFolder = targetFolder
   result.modules = @[]
-  result.rewrite = rewrite
+  result.rewrite = rewriteLangs[lang]
   result.config = config
   result.methods = initTable[string, Type]()
+  result.lang = lang
   # result.projectDir = result.root{"@projectDir"}.getStr()
   # result.package = result.projectDir.rsplit("/", 1)[1]
   for label, m in result.root:
@@ -320,11 +328,11 @@ proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): Node
   if not node.isFinished:
     b = rewrite.find(node)
   var newNode = node
-  if node.kind == Call and node.children[0].kind == Variable and node.children[0].label.underscore in rewrites[1].genBlock:
+  if node.kind == Call and node.children[0].kind == Variable and node.children[0].label.underscore in rewrites[2].genBlock:
     node.kind = MacroCall # = genKind(Node, MacroCall)
     if node.children[^1].kind == Block:
       node.children[^1] = Node(kind: Code, children: node.children[^1].code)
-  elif node.kind == Send and node.children[0].kind == Self and node.children[1].text.underscore in rewrites[1].genBlock:
+  elif node.kind == Send and node.children[0].kind == Self and node.children[1].text.underscore in rewrites[2].genBlock:
     node.kind = Call
     node.children = @[Node(kind: Variable, label: node.children[1].text)].concat(node.children[2 .. ^1])
   if b.len > 0:
@@ -603,13 +611,20 @@ include ruby_rewrite
 
 include ruby_plugin
 
-var rewriteinputruby* = rewriteList
+var rewriteRuby* = rewriteList
 rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[])
+rewriteLangs[Lang.Ruby] = rewriteRuby
 
 include nim_rewrite
 
-var rewritenim = rewriteList
-rewrites = @[rewriteinputruby, rewritenim]
+var rewriteNim = rewriteList
+rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[])
+
+include python_rewrite
+
+var rewritePython* = rewriteList
+rewrites = @[rewriteRuby, rewritePython, rewriteNim]
+rewriteLangs[Lang.Python] = rewritePython
 
 var A = Type(kind: T.Object, label: "A", fields: initTable[string, Type]())
 
@@ -838,7 +853,7 @@ proc generateCode(traceDB: TraceDB) =
     let folder = nimPath.parentDir.splitFile[1]
     let base = nimPath.splitFile[1]
     let newPath = traceDB.targetFolder / folder / base & ".nim"
-    var generator = Generator(indent: 2, v: V019, module: Module(), identifierCollisions: initSet[string]())
+    var generator = Generator(indent: 2, v: V019, module: Module(), identifierCollisions: initSet[string](), lang: traceDB.lang)
     var output = generator.generate(input, traceDB.config)
     createDir traceDB.targetFolder / folder
     writeFile(newPath, output)
@@ -853,8 +868,8 @@ proc compile*(traceDB: TraceDB) =
   analyzeCode(traceDB, env)
 
   # rewrite ruby code
-  rewriteCode(traceDB, rewriteinputruby)
+  rewriteCode(traceDB, traceDB.rewrite)
   # rewrite nim code
-  rewriteCode(traceDB, rewritenim)
+  rewriteCode(traceDB, rewriteNim)
 
   traceDB.generateCode 

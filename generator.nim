@@ -164,6 +164,10 @@ proc generateForward(generator: Generator, function: Node): PNode =
     function.returnType = VoidType
   if function.typ.isNil:
     dump function
+  if generator.lang == Lang.Python:
+    function.returnType = function.typ.returnType
+  echo function.label
+  echo function.returnType
   let args = generator.generateArgs(function.args, function.typ, function.returnType)
 
   var name = generateIdent(function.label)
@@ -218,7 +222,7 @@ proc generateArgs(generator: Generator, nodes: seq[Node], typ: Type, returnType:
     iTyp = typ.overloads[0]
   result = nkFormalParams.newTree()
   result.add(generator.generateType(returnType))
-  var z = 0
+  echo returnType
   for arg in nodes:
     var argTyp = if z < len(iTyp.args): iTyp.args[z] else: VoidType
     result.add(nkIdentDefs.newTree(
@@ -353,6 +357,7 @@ proc generateGroup(generator: Generator, group: seq[Node]): PNode =
     of Declaration.Let: nkLetSection.newTree()
     of Declaration.Const: nkConstSection.newTree()
     else: nkStmtList.newTree()
+
   for element in group:
     var e = element
     e.declaration = Declaration.Existing
