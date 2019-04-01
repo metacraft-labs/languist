@@ -11,15 +11,15 @@ if arg.endsWith("/"):
 let nimRubocop = getEnv("RB2NIM_FAST_RUBOCOP_PATH", getHomeDir() / "nim-rubocop")
 
 if directory.len == 0:
-  echo &"./rb2nim {arg} {nimRubocop}/cops \"bash ~/spec.sh {arg} {category}\""
-  discard execShellCmd(&"./rb2nim {arg} {nimRubocop}/cops \"bash ~/spec.sh {arg} {category}\"")
+  echo &"./rb2nim {arg} {nimRubocop}/cops \"bash {directory}/spec.sh {arg} {category}\""
+  discard execShellCmd(&"./rb2nim {arg} {nimRubocop}/cops \"bash {directory}/spec.sh {arg} {category}\"")
 else:
   for child in walkDir(directory, true):
     if child.kind == pcFile:
       # Praise the Lord!
       let path = child.path.splitFile[1]
       echo path
-      let status = execCmd(&"./rb2nim {path} ~/{nimRubocop}/cops \"bash ~/spec.sh {path} {category}\"")
+      let status = execCmd(&"./rb2nim {path} {nimRubocop}/cops \"bash {directory}/spec.sh {path} {category}\"")
       echo "langcop", status
       if status == 130:
         quit(1)      
