@@ -1,5 +1,5 @@
 GIT
-  remote: $HOME/ruby-deduckt
+  remote: /home/alehander42/ruby-deduckt
   revision: 8ea8c95baced41b56f2b91d6b5f9fe0e767446b0
   branch: master
   specs:
