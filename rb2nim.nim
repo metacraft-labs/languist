@@ -6,6 +6,8 @@ if paramCount() != 1 and paramCount() != 3:
        "rb2nim <filename pattern> <target_folder> <command> / <file>" 
   quit(0)
 
+let deduckt_exe = getEnv("RB2NIM_DEDUCKT_PATH", getHomedir() / "ruby-deduckt") / "exe" / "ruby-deduckt"
+echo deduckt_exe
 var first = paramStr(1)
 var filename = first
 var targetFolder = ""
@@ -26,7 +28,6 @@ if paramCount() == 1 and first != "last":
         if filename in @["class", "love"]:
           continue
         echo file.path
-        let deduckt_exe = getHomedir() / "ruby-deduckt" / "exe" / "ruby-deduckt"
         command = &"ruby {deduckt_exe} -m {filename} -o {targetFolder} test/{filename}.rb"
         debug = false
         var status = execCmd(&"{command} > /dev/null 2>&1")
@@ -49,7 +50,7 @@ if paramCount() == 1 and first != "last":
         # break # TODO
     quit(0)
   else:
-    let deduckt_exe = getHomedir() / "ruby-deduckt" / "exe" / "ruby-deduckt"
+    
     targetFolder = filename.splitFile()[0]
     let module_pattern = filename.splitFile()[1]
     command = &"env DEDUCKT_MODULE_PATTERNS={module_pattern} DEDUCKT_OUTPUT_DIR={targetFolder} bundle exec {deduckt_exe} {filename}"
@@ -61,7 +62,6 @@ else:
   if first != "last":
     targetFolder = expandFilename(paramStr(2))
     command = paramStr(3)
-    let deduckt_exe = getHomedir() / "ruby-deduckt" / "exe" / "ruby-deduckt"
     # echo &"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}"
     let status = execCmd(&"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}")
 
