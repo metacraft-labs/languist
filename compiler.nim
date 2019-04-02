@@ -227,14 +227,17 @@ proc accepts(l: Type, r: Type): bool =
     return l == r    
 
 proc normalize(label: string): string =
-  camelCase(label)
+  result = camelCase(label)  
 
 func compatible(l: string, r: string): bool =
-  if '_' notin l:
-    l == r.normalize
+  if '?' in r:
+    var good = "is_" & r[0 .. ^2]
+    good = good.normalize
+    var goodL = l.normalize
+    goodL == good
   else:
-    l == r
-
+    l.normalize == r.normalize
+  
 
 proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): bool =
   if l.kind == Variable:
@@ -257,6 +260,7 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
 
   if l.kind == Operator and r.kind in {Variable, Operator}:
     return compatible(l.label, r.label)
+
   if l.kind == String and r.kind in {String, Symbol}:
     return compatible(l.text, r.text)
   if l.kind != r.kind:
@@ -790,9 +794,10 @@ proc analyze(node: Node, env: Env, class: Type = nil, inBranch: bool = false) =
     elif node.children[0].label == "+":
       node.typ = node.children[1].typ
   of UnaryOp:
-    if node.children[0].label in @["not"]:
+    if node.children[0].label in @["not", "!"]:
       node.typ = BoolType
-    echo "UNARY"
+      node.children[0].label = "not"
+    # echo node.children[0]
   of If:
     analyze(node.children[0], env, inBranch=true)
     node.children[0] = toBool(node.children[0])

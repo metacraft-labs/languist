@@ -567,6 +567,7 @@ proc generatePair(generator: Generator, node: Node): PNode =
     result = emptyNode
 
 proc generateUnaryOp(generator: Generator, node: Node): PNode =
+  dump node[0].label
   result = nkPrefix.newTree(generateIdent(node[0].label & " "), emitNode(node[1]))
 
 proc generateExprColonExpr(generator: Generator, node: Node): PNode =

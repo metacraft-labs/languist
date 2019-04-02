@@ -95,3 +95,9 @@ rewrite do (a: Sequence, b: Any):
 do:
   code:
     binop(operator"in", args["b"], args["a"], BoolType)
+
+rewrite do (a: Any):
+  a.toS
+do:
+  code:
+    call(variable("$"), args["a"], StringType)

@@ -85,3 +85,16 @@ do:
     # can't type TODO
     let typ = sequenceType(args["a"].typ)
     send(args["a"], "toSeq")
+
+rewrite do (a: Any, b: Any):
+  a.isStartWith(b)
+do:
+  code:
+    send(args["a"], "startsWith", args["b"])
+
+rewrite do (a: Any):
+  a.is_one
+do:
+  code:
+    let c = call(variable("len"), args["a"], IntType)
+    compare(operator("=="), c, 1, BoolType)
