@@ -261,6 +261,8 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
   if l.kind == Operator and r.kind in {Variable, Operator}:
     return compatible(l.label, r.label)
 
+  if l.kind == String:
+    echo l.text, " ", r
   if l.kind == String and r.kind in {String, Symbol}:
     return compatible(l.text, r.text)
   if l.kind != r.kind:
@@ -338,9 +340,14 @@ proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): Node
     if node.children[^1].kind == Block:
       node.children[^1] = Node(kind: Code, children: node.children[^1].code)
   elif node.kind == Send and node.children[0].kind == Self and node.children[1].text.underscore in rewrites[2].genBlock:
-    node.kind = MacroCall
+    let boolean = node.children[1].text.endsWith("?")
+    if not boolean:
+      node.kind = MacroCall
+    else:
+      node.kind = Call
     node.children = @[Node(kind: Variable, label: node.children[1].text)].concat(node.children[2 .. ^1])
-    node.children[^1] = Node(kind: Code, children: node.children[^1].code)
+    if not boolean:
+      node.children[^1] = Node(kind: Code, children: node.children[^1].code)
 
   if b.len > 0:
     var c = b[0]

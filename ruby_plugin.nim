@@ -47,7 +47,7 @@ rewrite do (a: Node):
 do:
   code:
     var arg = args["a"]
-    attribute(arg, "typ", Type(kind: Simple, label: "Type"))
+    attribute(arg, "kind", Type(kind: Simple, label: "Type"))
 
 #
 const LOCATIONS = @["name", "expression", "selector", "nameRange", "operator"]
