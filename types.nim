@@ -205,10 +205,18 @@ type
     isGeneric*: bool
     dependencies*: seq[string]
 
-  Rewrite* = object
+  Rewrite* = ref object
     rules*: seq[RewriteRule]
     types*: Table[string, Type]
     genBlock*: seq[string]
+    symbolRules*: seq[SymbolRule]
+    lastCalls*: seq[SymbolRule]
+
+
+  SymbolRule* = ref object
+    label*: string
+    elements*: seq[string]
+    handler*: proc(a: string): Node
 
   Config* = object
     indent*: int

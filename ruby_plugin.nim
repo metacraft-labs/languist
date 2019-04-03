@@ -36,7 +36,7 @@ rewrite do (x: Symbol, y: String):
 do:
   code:
     var res = Node(kind: MacroCall, children: @[variable("nodeMatcher"), variableGenBlock(args["x"].text), args["y"]], typ: VoidType)
-    dump rewrites[1].genBlock
+    # dump rewrites[1].genBlock
     res
 
 # we need this for : Node
@@ -49,3 +49,13 @@ do:
     var arg = args["a"]
     attribute(arg, "typ", Type(kind: Simple, label: "Type"))
 
+#
+const LOCATIONS = @["name", "expression", "selector", "nameRange", "operator"]
+const KINDS = @["lvasgn", "int", "def", "sym", "or_asgn", "begin"]
+
+symbols:
+  add_offense LOCATIONS:
+    variable(a)
+
+  _ KINDS:
+    variable("Rb" & a.camelCase.capitalizeAscii)

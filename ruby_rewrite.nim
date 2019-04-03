@@ -98,3 +98,4 @@ do:
   code:
     let c = call(variable("len"), args["a"], IntType)
     compare(operator("=="), c, 1, BoolType)
+

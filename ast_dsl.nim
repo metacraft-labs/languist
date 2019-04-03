@@ -56,7 +56,6 @@ macro attribute*(base: untyped, attr: untyped, typ: untyped = nil): untyped =
         `baseL`,
         Node(kind: String, text: `attr`)],
       isFinished: true)
-  echo result.repr
 
 macro sequence*(args: varargs[untyped]): untyped =
   var elements = quote:
@@ -127,6 +126,7 @@ macro variableGenBlock*(name: untyped, typ: untyped = nil): untyped =
         n = "is_" & n[0 .. ^2]
       rewrites[0].genBlock.add(n)
       rewrites[1].genBlock.add(n)
+      rewrites[2].genBlock.add(n)
       Node(
         kind: Variable,
         label: n,

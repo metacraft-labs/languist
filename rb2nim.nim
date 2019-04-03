@@ -100,6 +100,7 @@ let path = getEnv("RB2NIM_CONFIG", "")
 var config = Config(imports: @[], indent: 2, name: "default config")
 if path.len > 0:
   config = parseJson(readFile(path)).to(Config)
+echo config
 
 var dir = targetFolder
 if targetFolder == "test":

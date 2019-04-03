@@ -299,7 +299,7 @@ proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
     if rule.input.find(node, rule.replaced):
       result.add(rule)
 
-var rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[])
+var rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[], symbolRules: @[], lastCalls: @[])
 var rewrites: seq[Rewrite] = @[]
 
 proc replace(rule: RewriteRule, node: Node, blockNode: Node, m: Module): Node =
@@ -327,6 +327,7 @@ proc replace(rule: RewriteRule, node: Node, blockNode: Node, m: Module): Node =
 
 proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): Node
 
+
 proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): Node =
   var b: seq[RewriteRule] = @[]
   if not node.isFinished:
@@ -337,15 +338,42 @@ proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): Node
     if node.children[^1].kind == Block:
       node.children[^1] = Node(kind: Code, children: node.children[^1].code)
   elif node.kind == Send and node.children[0].kind == Self and node.children[1].text.underscore in rewrites[2].genBlock:
-    node.kind = Call
+    node.kind = MacroCall
     node.children = @[Node(kind: Variable, label: node.children[1].text)].concat(node.children[2 .. ^1])
+    node.children[^1] = Node(kind: Code, children: node.children[^1].code)
+
   if b.len > 0:
     var c = b[0]
     for a in b:
       if c.isGeneric and not a.isGeneric:
         c = a
     newNode = c.replace(node, blockNode, m)
-  return rewriteChildren(newNode, rewrite, blockNode, m)
+  var last = false
+  if node.kind == Symbol:
+    for rule in rewrite.symbolRules:
+      if rule.label == "_" and node.text in rule.elements:
+        newNode = rule.handler(node.text)
+        echo newNode
+    for rule in rewrite.lastCalls:
+      if node.text in rule.elements:
+        newNode = rule.handler(node.text)
+        echo newNode
+  if node.kind == Call and node[0].kind == Variable:
+    for rule in rewrite.symbolRules:
+      if compatible(node[0].label, rule.label):
+        rewrite.lastCalls.add(rule)
+        last = true
+        break
+  elif node.kind == Send:
+    for rule in rewrite.symbolRules:
+      if compatible(node[0].label, rule.label):
+        rewrite.lastCalls.add(rule)
+        last = true
+        break
+
+  result = rewriteChildren(newNode, rewrite, blockNode, m)
+  if last:
+    discard rewrite.lastCalls.pop
 
 
 proc rewriteChildren(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): Node =
@@ -610,19 +638,33 @@ macro rewrite*(input: untyped, output: untyped): untyped =
       `result`
   dump result.repr
 
+macro symbols*(input: untyped): untyped =
+  result = nnkStmtList.newTree()
+  for child in input:
+    let callLabel = newLit(child[0].repr)
+    let c = child[1]
+    let callCode = child[2]
+    var aNode = ident("a")
+    let symbol = quote:
+      var l = proc(a: string): Node =
+        var `aNode` = a
+        `callCode`
+      rewriteList.symbolRules.add(SymbolRule(label: `callLabel`, elements: `c`, handler: l))
+    result.add(symbol)
+  echo result.repr
 
 include ruby_rewrite
 
 include ruby_plugin
 
 var rewriteRuby* = rewriteList
-rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[])
+rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[], symbolRules: @[], lastCalls: @[])
 rewriteLangs[Lang.Ruby] = rewriteRuby
 
 include nim_rewrite
 
 var rewriteNim = rewriteList
-rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[])
+rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[], symbolRules: @[], lastCalls: @[])
 
 include python_rewrite
 
