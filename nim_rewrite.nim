@@ -90,7 +90,7 @@ rewrite do (a: Any):
 do:
   code:
     attribute(args["a"], "ExcludedMethods", sequenceType(StringType))
-rewrite do (a: Sequence, b: Any):
+rewrite do (a: Any, b: Any): # FIX
   a.isInclude(b)
 do:
   code:
@@ -101,3 +101,4 @@ rewrite do (a: Any):
 do:
   code:
     call(variable("$"), args["a"], StringType)
+

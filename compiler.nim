@@ -212,13 +212,12 @@ proc startPath*(db: TraceDB): string =
 
 
 proc accepts(l: Type, r: Type): bool =
-  if l.isNil or r.isNil:
+  if l.isNil:
     return false
-  # dump l
-  # dump r
-  # dump l.kind == T.Generic and r.kind == T.Compound and l.label == r.original.label
   if l.kind == T.Any:
     return true
+  elif r.isNil:
+    return false
   elif l.kind == T.Method and l.kind == r.kind and l.returnType.isNil:
     return true
   elif l.kind == T.Generic and r.kind == T.Compound and l.label == r.original.label:
@@ -239,7 +238,13 @@ func compatible(l: string, r: string): bool =
     l.normalize == r.normalize
   
 
+var t = false
 proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): bool =
+  # if l.kind == Index and r.kind == Index:
+  #   t = true
+  if t:
+    echo l
+    echo r
   if l.kind == Variable:
     var replace = false
     var typ: Type = nil
@@ -261,8 +266,6 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
   if l.kind == Operator and r.kind in {Variable, Operator}:
     return compatible(l.label, r.label)
 
-  if l.kind == String:
-    echo l.text, " ", r
   if l.kind == String and r.kind in {String, Symbol}:
     return compatible(l.text, r.text)
   if l.kind != r.kind:
@@ -285,14 +288,25 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
   else:
     result = true
   if not result:
+    if l.kind == Index and r.kind == Index:
+      echo "not result"
     return
   if l.children.len != r.children.len:
+    if l.kind == Index and r.kind == Index:
+      t = false
+      echo "no"
     return false
   for i in 0 .. < l.children.len:
     edump i
     if not l.children[i].find(r.children[i], replaced):
       edump l.children[i]
+      if l.kind == Index and r.kind == Index:
+        echo "not equal"
+        t = false
       return false
+  if l.kind == Index and r.kind == Index:
+    echo "true"
+    t = false
   result = true
   
 proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =

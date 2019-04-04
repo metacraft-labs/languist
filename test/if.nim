@@ -2,7 +2,7 @@
 import
   types
 
-var value = 3
+var value = 2
 if value == 2:
   p(value)
 else:
