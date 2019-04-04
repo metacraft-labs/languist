@@ -1,8 +1,8 @@
 
 import
-  ruby
+  types
 
-var value = 2
+var value = 3
 if value == 2:
   p(value)
 else:
