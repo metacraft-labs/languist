@@ -4,8 +4,8 @@ import
 
 type
   E* = ref object
-method e*(self: E; b: int): void
-method e*(self: E; b: int): void =
+method e*(self: void; b: int): void
+method e*(self: void; b: int): void =
   var c: int
   if b > 0:
     c = 0

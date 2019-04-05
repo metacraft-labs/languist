@@ -1,56 +1,18 @@
 
-# rb2nim
+# languist
 
-Clone the repositories [rubocop][rubocop_url] and [fast-rubocop][fast_rubocop_url]
-and place them next to each other
+Languist is a framework for analysis of both the static and the run-time properties of programs written in a growing list of supported dynamically typed programming languages. It also supports refactoring/rewriting and helps for generating idiomatic high level code.
 
-install rbenv or ruby in some other way: you might need to change your commands
+It also defines an intermediate `interlang` API which supports multi-language idioms/API-s.
 
-[rubocop_url]: https://gitlab.com/metacraft-labs/rubocop
-[fast_rubocop_url]: https://gitlab.com/metacraft-labs/fast-rubocop
+It can be used as a basis for creating:
 
-Set in env RB2NIM_CONFIG to e.g. `rubocop.json` or `test.json`
-```bash
-rb2nim <filename pattern> <folder> <command>
+* source-to-source translation tools such as `rb2nim` and `py2nim`
+* source code indexing and cross-referencing engines
+* automated refactoring tools
+* automated debugging tools
+* efficient language servers (edited) 
 
-rb2nim case_equality ~/fast-rubocop "bash ~/spec.sh"
-or 
-rb2nim test/..
-```
-But run mostly langcop for now
-
-where spec.sh is e.g. something like 
-
-```bash
-#!/bin/bash
-RUBY_VERSION=2.5.0
-
-cd ../rubocop
-rbenv local $RUBY_VERSION
-
-rbenv exec ruby ~/.rbenv/versions/$RUBY_VERSION/bin/rspec ./spec/rubocop/cop/style/case_equality_spec.rb
-```
-
-we also need to require_relative tracing.rb in the right place: this has to be automated more, but for now it's in cop.rb in your repo.
-
-now you can see `~/fast-rubocop` and e.g. compile and run `~/fast-rubocop/checker.nim` with a ruby file as arg
-
-you can also use langcop
-
-```bash
-# specially for rubocop <name> <category>
-./langcop block_length 'metrics rubocop'
-```
-
-# rubytracer
-
-Ruby tracing: we will have this as a lib and as a binary
-
-## example
-
-```json
-{"A.b":{"kind":"method","args":[{"kind":"simple","label":"Integer"}],"return_type":{"kind":"simple","label":"NilClass"}},"Love.b":{"kind":"method","args":[{"kind":"simple","label":"String"}],"return_type":{"kind":"simple","label":"NilClass"}}}
-```
 
 ## LICENSE
 

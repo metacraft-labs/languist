@@ -1,6 +1,6 @@
 GIT
   remote: /home/alehander42/ruby-deduckt
-  revision: 6d74a2d572d02ebbb6ac17c5fdc5182905c16d8d
+  revision: f42cf5ce932fc0ee9727508839d969fe24235e53
   branch: master
   specs:
     deduckt (0.1.0)

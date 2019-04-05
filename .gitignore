@@ -5,7 +5,7 @@ __pycache__/
 
 python-deduckt.json
 types
-rb2nim
+languist
 ast_dsl
 compiler
 langcop

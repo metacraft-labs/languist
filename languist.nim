@@ -1,9 +1,9 @@
 import types, compiler, os, strformat, strutils, json, osproc
 
-# rb2nim <filename pattern> <target_folder>
+# languist <filename pattern> <target_folder>
 if paramCount() != 1 and paramCount() != 3:
-  echo "rb2nim test \n" & 
-       "rb2nim <filename pattern> <target_folder> <command> / <file>" 
+  echo "languist test \n" & 
+       "languist <filename pattern> <target_folder> <command> / <file>" 
   quit(0)
 
 let ruby_deduckt_exe = getEnv("RB2NIM_RUBY_DEDUCKT_PATH", "") / "exe" / "ruby-deduckt"

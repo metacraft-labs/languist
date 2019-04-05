@@ -1,7 +1,12 @@
 import types, strformat, strutils, sequtils, ast_dsl, tables, json, gen_kind, sets, json, macros, terminal, helpers, os, osproc, sugar
 
+# Praise the Lord!
+
 proc underscore(label: string): string
+
 proc rewriteType*(traceDB: TraceDB, label: string, typ: Type): Type =
+  # rewrite a type from ruby based on module
+  
   result = typ
   eecho &"TYP {label}"
   if traceDB.rewrite.types.len != 0:
@@ -18,10 +23,14 @@ proc rewriteType*(traceDB: TraceDB, label: string, typ: Type): Type =
         return traceDB.rewrite.types[subLabel]
 
 proc loadType*(typ: JsonNode, traceDB: TraceDB): Type =
+  # load a type from trace
+
   if typ{"kind"}.isNil:
     return nil
+  
   var kind = parseEnum[T](typ{"kind"}.getStr())
   result = genKind(Type, kind)
+  
   case kind:
   of T.Method:
     result.args = @[]
@@ -75,6 +84,8 @@ proc loadType*(typ: JsonNode, traceDB: TraceDB): Type =
 proc loadMethod*(m: JsonNode, traceDB: TraceDB, isBlock: bool = false): Node
 
 proc loadNode*(m: JsonNode, traceDB: TraceDB): Node =
+  # load a node from trace
+
   if m{"kind"}.isNil:
     return nil
   var kind = parseEnum[NodeKind](m{"kind"}.getStr())

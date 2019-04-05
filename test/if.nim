@@ -1,6 +1,6 @@
 
 import
-  types
+  ruby
 
 var value = 2
 if value == 2:

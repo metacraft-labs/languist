@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-nim c rb2nim
+nim c languist
