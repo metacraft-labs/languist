@@ -17,6 +17,7 @@ if directory.len == 0:
 else:
   for child in walkDir(directory, true):
     if child.kind == pcFile:
+      
       # Praise the Lord!
       let path = child.path.splitFile[1]
       echo path

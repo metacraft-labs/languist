@@ -1,4 +1,4 @@
-import types, compiler, os, strformat, strutils, json, osproc
+import languist/[types, compiler], os, strformat, strutils, json, osproc
 
 # languist <filename pattern> <target_folder>
 if paramCount() != 1 and paramCount() != 3:
@@ -6,8 +6,8 @@ if paramCount() != 1 and paramCount() != 3:
        "languist <filename pattern> <target_folder> <command> / <file>" 
   quit(0)
 
-let ruby_deduckt_exe = getEnv("RB2NIM_RUBY_DEDUCKT_PATH", "") / "exe" / "ruby-deduckt"
-let python_deduckt_exe = getEnv("RB2NIM_PYTHON_DEDUCKT_PATH", "") / "deduckt" / "main.py"
+let ruby_deduckt_exe = getEnv("LANGUIST_RUBY_DEDUCKT_PATH", "") / "exe" / "ruby-deduckt"
+let python_deduckt_exe = getEnv("LANGUIST_PYTHON_DEDUCKT_PATH", "") / "deduckt" / "main.py"
 echo ruby_deduckt_exe
 var first = paramStr(1)
 var filename = first
@@ -93,10 +93,14 @@ else:
     if status == 130:
       quit(status)
   else:
-    targetFolder = getEnv("RB2NIM_FAST_RUBOCOP_PATH") / "cops" # TODO
+    targetFolder = getEnv("LANGUIST_FAST_RUBOCOP_PATH") / "cops" # TODO
   lang = Lang.Ruby # TODO
 
-let path = getEnv("RB2NIM_CONFIG", "")
+var path = getEnv("LANGUIST_CONFIG", "languist.json")
+if not existsFile(path):
+  path = getHomeDir() / ".config" / "languist.json"
+if not existsFile(path):
+  path = ""
 var config = Config(imports: @[], indent: 2, name: "default config")
 if path.len > 0:
   config = parseJson(readFile(path)).to(Config)
