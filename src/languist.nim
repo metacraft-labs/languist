@@ -20,7 +20,7 @@ if paramCount() == 1 and first != "last":
     # all files in test
     # run the single test
     # rewriting the same lang_traces.json
-    var config = parseJson(readFile("test.json")).to(Config)
+    var config = parseJson(readFile("config/test.json")).to(Config)
 
     for file in walkDir("test", true):
       if file.path.endswith(".rb") or file.path.endswith(".py"):

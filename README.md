@@ -13,6 +13,15 @@ It can be used as a basis for creating:
 * automated debugging tools
 * efficient language servers (edited) 
 
+## testing
+
+you can run
+
+```bash
+./languist test
+```
+
+which translates a list of ruby and python files, then runs them and compares the output the new nim code.
 
 ## LICENSE
 

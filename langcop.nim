@@ -12,8 +12,8 @@ let nimRubocop = getEnv("LANGUIST_FAST_RUBOCOP_PATH", getHomeDir() / "nim-ruboco
 let directory2 = getEnv("LANGUIST_RUBOCOP_PATH")
   
 if directory.len == 0:
-  echo &"./languist {arg} {nimRubocop}/cops \"bash {directory2}/spec.sh {arg} {category}\""
-  discard execShellCmd(&"./languist {arg} {nimRubocop}/cops \"bash {directory2}/spec.sh {arg} {category}\"")
+  echo &"languist {arg} {nimRubocop}/cops \"bash {directory2}/spec.sh {arg} {category}\""
+  discard execShellCmd(&"languist {arg} {nimRubocop}/cops \"bash {directory2}/spec.sh {arg} {category}\"")
 else:
   for child in walkDir(directory, true):
     if child.kind == pcFile:
@@ -21,7 +21,7 @@ else:
       # Praise the Lord!
       let path = child.path.splitFile[1]
       echo path
-      let status = execCmd(&"./languist {path} {nimRubocop}/cops \"bash {directory2}/spec.sh {path} {category}\"")
+      let status = execCmd(&"languist {path} {nimRubocop}/cops \"bash {directory2}/spec.sh {path} {category}\"")
       echo "langcop", status
       if status == 130:
         quit(1)      
