@@ -9,6 +9,7 @@ types
 ast_dsl
 compiler
 langcop
+langcop_all
 test/nim
 test/ruby
 test/each

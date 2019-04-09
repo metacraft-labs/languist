@@ -221,7 +221,7 @@ proc generateArgs(generator: Generator, nodes: seq[Node], typ: Type, returnType:
   if not typ.isNil and typ.kind == T.MethodOverload:
     iTyp = typ.overloads[0]
   result = nkFormalParams.newTree()
-  if returnType.kind != Simple or returnType.label != "Void":
+  if not returnType.isNil and (returnType.kind != Simple or returnType.label != "Void"):
     result.add(generator.generateType(returnType))
   else:
     result.add(emptyNode)
@@ -815,9 +815,9 @@ proc generate*(generator: Generator, module: Module, config: Config): string =
       generator.main.add(emitNode(b))
 
   var forward = nkStmtList.newTree()
-  for node in methodNodes:
-    if not node.label.startsWith("on") and node.label notin @["message"]:
-      forward.add(generator.generateForward(node))
+  #for node in methodNodes:
+  #  if not node.label.startsWith("on") and node.label notin @["message"]:
+  #    forward.add(generator.generateForward(node))
   generator.methods = nkStmtList.newTree(forward, generator.methods)
   var program: PNode
   for label, function in rewriteGenerator:

@@ -21,7 +21,7 @@ you can run
 ./languist test
 ```
 
-which translates a list of ruby and python files, then runs them and compares the output the new nim code.
+which translates a list of ruby and python files, then runs them and runs the nim output and compares the output.s
 
 ## LICENSE
 
