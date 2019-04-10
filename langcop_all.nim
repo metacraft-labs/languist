@@ -6,7 +6,11 @@ let list = @[
   ("disjunctive_assignment_in_constructor", "lint"),
   ("boolean_symbol", "lint"),
   ("variable_name", "naming"),
-  ("method_length", "metrics")
+  ("method_length", "metrics"),
+  ("binary_operator_parameter_name", "naming"),
+  ("class_length", "metrics"),
+  ("line_length", "metrics"),
+  ("begin_block", "style")
 ]
 
 for (label, directory) in list:

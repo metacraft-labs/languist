@@ -50,7 +50,7 @@ do:
     attribute(arg, "kind", Type(kind: Simple, label: "Type"))
 
 #
-const LOCATIONS = @["name", "expression", "selector", "nameRange", "operator"]
+const LOCATIONS = @["name", "expression", "selector", "nameRange", "operator", "keyword"]
 const KINDS = @["lvasgn", "int", "def", "sym", "or_asgn", "begin"]
 
 symbols:

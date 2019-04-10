@@ -100,7 +100,9 @@ proc generateTypeDeclaration(generator: Generator, t: Node): PNode =
   if not docstring.isNil:
     result.add(docstring)
   for met in t.methods:
+    generator.methods.add(newNode(nkEmpty))
     generator.methods.add(generator.generateMethod(met.node))
+
   
 
 proc generateType(generator: Generator, typ: Type): PNode =
