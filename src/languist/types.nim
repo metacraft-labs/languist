@@ -161,6 +161,7 @@ type
     else:
       discard
     docstring*: seq[string]
+    annotations*: seq[Annotation]
     children*: seq[Node] # complicates everything to have it disabled for several nodes
 
   Field* = object
@@ -226,6 +227,15 @@ type
     ignoreMethods*: seq[string]
     
 
+  AnnotationKind* = enum NoAnnotation, Ignore, NameType
+
+  Annotation* = object
+    case kind*: AnnotationKind:
+    of NoAnnotation, Ignore:
+      discard
+    of NameType:
+      name*: string
+      typ*: Type
 
   Lang* = enum Ruby, Python
 
@@ -668,3 +678,18 @@ proc translateIdentifier*(label: string, identifierCollisions: HashSet[string]):
   else:
     return label
 
+proc parseType(source: string): Type =
+  result = Type(kind: T.Simple, label: source)
+
+proc parseAnnotation*(source: string): Annotation =
+  if not source.startsWith("l "):
+    Annotation(kind: AnnotationKind.NoAnnotation)
+  else:
+    if source[2 .. ^1] == "ignore":
+      Annotation(kind: AnnotationKind.Ignore)
+    else:
+      let nodes = source[2 .. ^1].split(':', 1)
+      Annotation(
+        kind: AnnotationKind.NameType,
+        name: nodes[0],
+        typ: parseType(nodes[1]))

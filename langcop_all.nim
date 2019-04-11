@@ -10,7 +10,8 @@ let list = @[
   # ("binary_operator_parameter_name", "naming"),
   # ("class_length", "metrics"),
   # ("line_length", "metrics"),
-  ("begin_block", "style")
+  ("begin_block", "style"),
+  ("single_line_methods", "style")
 ]
 
 for (label, directory) in list:

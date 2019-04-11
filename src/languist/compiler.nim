@@ -141,6 +141,16 @@ proc loadMethod*(m: JsonNode, traceDB: TraceDB, isBlock: bool = false): Node =
     result.docstring = m{"docstring"}.mapIt(it.getStr())
   else:
     result.docstring = @[]
+  var annotations: seq[Annotation]
+  
+  for docstring in result.docstring:
+    if docstring.startsWith("l "):
+      annotations.add(parseAnnotation(docstring.strip))
+  result.annotations = annotations
+  
+  if annotations.len > 0 and annotations[0].kind == AnnotationKind.Ignore:
+    return nil
+
   if result.typ.isNil or traceDB.lang == Lang.Python:
     var args = result.args.mapIt(it.typ)
     result.typ = Type(kind: T.Method, args: args, returnType: result.returnType)
@@ -154,7 +164,7 @@ proc loadClass*(m: JsonNode, traceDB: TraceDB): Node =
   result = Node(kind: Class)
   result.label = m{"label"}.getStr()
   result.fields = m{"fields"}.mapIt(Field(label: it{"label"}.getStr(), node: it{"node"}.loadNode(traceDB)))
-  result.methods = m{"methods"}.mapIt(Field(label: it{"label"}.getStr(), node: it{"node"}.loadMethod(traceDB)))
+  result.methods = m{"methods"}.mapIt(Field(label: it{"label"}.getStr(), node: it{"node"}.loadMethod(traceDB))).filterIt(not it.node.isNil)
   result.docstring = m{"docstring"}.mapIt(it.getStr())
   var typ = loadType(m{"typ"}, traceDB)
   edump result.label
@@ -764,6 +774,9 @@ proc analyze(node: Node, env: Env, class: Type = nil, inBranch: bool = false) =
 
     for subNode in node.code:
       analyze(subNode, met)
+    for annotation in node.annotations:
+      if annotation.kind == AnnotationKind.NameType:
+        met[annotation.name] = annotation.typ
     var declarations: seq[Node] = @[]
     for label, t in met.declarations:
       let typ = t[0]
