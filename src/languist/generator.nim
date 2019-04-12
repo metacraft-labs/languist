@@ -440,7 +440,6 @@ proc generateCommand(generator: Generator, node: Node): PNode =
 
 proc generateReturn(generator: Generator, node: Node): PNode =
   ensure(Return)
-
   if node.children.len > 0:
     result = nkReturnStmt.newTree(emitNode(node[0]))
   else:
@@ -789,6 +788,7 @@ include rewrites/generator_rewrite
 
 proc generate*(generator: Generator, module: Module, config: Config): string =
   generator.module = module
+
   generator.top = newNode(nkStmtList)
   generator.types = newNode(nkStmtList)
   generator.methods = newNode(nkStmtList)

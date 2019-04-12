@@ -14,6 +14,8 @@ let list = @[
   ("single_line_methods", "style")
 ]
 
+# ("symbol_literal", "style"),
+# ("send", "symbol")
 for (label, directory) in list:
   echo &"{label} {directory}"
   let status = execCmd(&"./langcop {label} {directory}")
