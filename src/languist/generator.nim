@@ -233,17 +233,26 @@ proc generateArgs(generator: Generator, nodes: seq[Node], typ: Type, returnType:
   for arg in nodes:
     var argTyp = if z < len(iTyp.args): iTyp.args[z] else: VoidType
     var typNode = generator.generateType(argTyp)
-    echo arg.label
-    if generator.params.hasKey(arg.label):
-      var expected = generator.params[arg.label]
+    var name = ""
+    var default = emptyNode
+    if arg.kind == Variable:
+      name = arg.label
+    elif arg.kind == Optarg:
+      name = arg[0].text
+      default = emitNode(arg[1])
+    else:
+      # ok
+      discard
+    if generator.params.hasKey(name):
+      var expected = generator.params[name]
       echo $typNode
       if expected == "*" or typNode.kind == nkIdent and expected == $typNode:
         typNode = emptyNode
 
     result.add(nkIdentDefs.newTree(
-      generateIdent(arg.label),
+      generateIdent(name),
       typNode,
-      emptyNode))
+      default))
     z += 1
 
 proc generateMethod(generator: Generator, met: Node): PNode =
@@ -471,35 +480,8 @@ proc generateDocstring(generator: Generator, node: Node): PNode =
   result.strVal = node.text
   edump result.strVal
 
-# let SYMBOLS* = {
-#   PyAdd: "+",
-#   PySub: "-",
-#   PyMult: "*",
-#   PyDiv: "/",
-#   PyFloorDiv: "//",
-#   PyPow: "**",
-#   PyEq: "==",
-#   PyNotEq: "!=",
-#   PyLtE: "<=",
-#   PyGtE: ">=",
-#   PyGt: ">",
-#   PyLt: "<",
-#   PyAnd: "and",
-#   PyOr: "or",
-#   PyNot: "not",
-#   PyUSub: "-",
-#   PyIs: "is",
-#   PyIsNot: "isnot",
-#   PyIn: "in",
-#   PyNotIn: "notin",
-#   PyBitAnd: "and",
-#   PyBitOr: "or",
-#   PyMod: "mod",
-# }.toTable()
-
 proc generateOp(generator: Generator, op: Node): PNode =
-  # echo op
-  let s = op.label # if SYMBOLS.hasKey(op.kind): SYMBOLS[op.kind] else: op.label
+  let s = op.label
   result = generateIdent(s)
 
 proc generateBinOp(generator: Generator, node: Node): PNode =

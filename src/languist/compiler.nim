@@ -884,6 +884,7 @@ proc analyze(node: Node, env: Env, class: Type = nil, inBranch: bool = false) =
     elif node.children[0].label == "+":
       node.typ = node.children[1].typ
   of UnaryOp:
+    # echo "UNARY", node.children[0].label, node.children[0].label in @["not", "!"]
     if node.children[0].label in @["not", "!"]:
       node.typ = BoolType
       node.children[0].label = "not"
