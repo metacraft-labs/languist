@@ -144,7 +144,7 @@ proc loadMethod*(m: JsonNode, traceDB: TraceDB, isBlock: bool = false): Node =
   var annotations: seq[Annotation]
   
   for docstring in result.docstring:
-    if docstring.startsWith("l "):
+    if docstring.startsWith("languist "):
       annotations.add(parseAnnotation(docstring.strip))
   result.annotations = annotations
   

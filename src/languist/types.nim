@@ -237,11 +237,22 @@ type
       name*: string
       typ*: Type
 
-  Lang* = enum Ruby, Python
+  IdiomPackage* = object
+    name*: string
+    version*: string
+    lang*: Lang
+    isLang*: bool
+
+  LangPackages* = Table[string, RawPackage]
+  
+  RawPackage* = Table[string, float]
+
+  Lang* = enum Ruby, Python, Nim
 
 let endl* = "\n"
 
 var debug* = false #true
+
 
 template eecho*(a: untyped): untyped =
   if debug:
@@ -250,6 +261,9 @@ template eecho*(a: untyped): untyped =
 template edump*(a: untyped): untyped =
   if debug:
     dump a
+
+proc id*(package: IdiomPackage): string =
+  &"{$package.lang}-{package.name}-{package.version}"
 
 proc simpleType*(label: string): Type =
   Type(kind: T.Simple, label: label)
@@ -647,10 +661,12 @@ proc deepCopy*(a: Node): Node =
 
 proc getLang*(name: string): Lang =
   case name:
-  of ".py":
+  of ".py", "python":
     Lang.Python
-  of ".rb":
+  of ".rb", "ruby":
     Lang.Ruby
+  of ".nim", "nim":
+    Lang.Nim
   else:
     Lang.Ruby
 

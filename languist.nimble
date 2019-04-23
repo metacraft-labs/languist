@@ -9,5 +9,5 @@ skipDirs      = @["test"]
 bin           = @["languist"]
 # Dependencies
 
-requires "nim >= 0.19.1", "https://github.com/alehander42/Nim#fix-renderer"
+requires "nim >= 0.19.1", "https://github.com/alehander42/Nim#fix-renderer", "yaml"
 

@@ -1,19 +1,72 @@
-import languist/[types, compiler], os, strformat, strutils, json, osproc
+import languist/[types, compiler], os, strformat, strutils, json, osproc, yaml.serialization, streams, tables
 
 # languist <filename pattern> <target_folder>
 if paramCount() != 1 and paramCount() != 3:
   echo "languist test \n" & 
-       "languist <filename pattern> <target_folder> <command> / <file>" 
+       "languist <filename pattern> <target_folder> <command> / <file>\n" &
+       "languist init\n" &
+       "languist install"
   quit(0)
 
 let ruby_deduckt_exe = getEnv("LANGUIST_RUBY_DEDUCKT_PATH", "") / "exe" / "ruby-deduckt"
 let python_deduckt_exe = getEnv("LANGUIST_PYTHON_DEDUCKT_PATH", "") / "deduckt" / "main.py"
 echo ruby_deduckt_exe
+let activePath = getAppFilename()
+var activeFolder = activePath.splitFile[0]
+var cacheDir = activeFolder / "idioms"
 var first = paramStr(1)
 var filename = first
 var targetFolder = ""
 var command = ""
 var lang: Lang
+var repoPath = getHomeDir() / "languist_idioms"
+# TODO: refactor
+const DEFAULT = """
+nim:
+  lang: 0.19
+ruby:
+  lang: 2.5
+python:
+  lang: 3.4
+"""
+
+
+proc init =
+  if not existsFile("idioms.yaml"):
+    writeFile("idioms.yaml", DEFAULT)
+
+proc loadIdiomList(path: string): seq[IdiomPackage] =
+  var t = initTable[string, RawPackage]()
+  load(newFileStream(path), t)
+  result = @[]
+  for lang, raw in t:
+    for name, version in raw:
+      result.add(IdiomPackage(name: name, version: $version, lang: getLang(lang), isLang: name == "lang"))
+
+proc downloadRaw(package: IdiomPackage, path: string) =
+  # TODO http
+  let input = repoPath / package.id & ".nim"
+
+  if existsFile(input):
+    copyFile input,  path
+    echo &"Installed {package.id}"
+  else:
+    echo &"No version {package.id}"
+
+proc downloadIdiom(package: IdiomPackage) =
+  if not existsDir(cacheDir):
+    createDir cacheDir
+  let path = cacheDir / package.id & ".nim"
+  if not existsFile(path):
+    downloadRaw(package, path)
+  else:
+    echo &"Found {package.id} in cache"
+
+proc install =
+  init()
+  var idiomList = loadIdiomList("idioms.yaml")
+  for idioms in idiomList:
+    downloadIdiom(idioms)
 
 if paramCount() == 1 and first != "last":
   if first == "test":
@@ -38,6 +91,8 @@ if paramCount() == 1 and first != "last":
         of Lang.Python:
           command = &"env DEDUCKT_OUTPUT_DIR={targetFolder} python3 {python_deduckt_exe} test/{filename}.py"
           echo command
+        else:
+          discard
         debug = false
         var status = execCmd(&"{command} > /dev/null 2>&1")
         echo status
@@ -60,6 +115,8 @@ if paramCount() == 1 and first != "last":
         of Lang.Python:
           output = "test/python"
           discard execCmd(&"python3 test/{filename}.py > {output}")
+        else:
+          discard
         discard execCmd(&"test/{filename} > test/nim")
         targetFolder = ""
         if readFile("test/nim") == readFile(output):
@@ -68,6 +125,12 @@ if paramCount() == 1 and first != "last":
           echo "ERROR"
 
         # break # TODO
+    quit(0)
+  elif first == "init":
+    init()
+    quit(0)
+  elif first == "install":
+    install()
     quit(0)
   else:
     var module_pattern: string
@@ -79,6 +142,8 @@ if paramCount() == 1 and first != "last":
       command = &"env DEDUCKT_MODULE_PATTERNS={module_pattern} DEDUCKT_OUTPUT_DIR={targetFolder} rbenv exec bundle exec {ruby_deduckt_exe} {filename}"
     of Lang.Python:
       command = &"env DEDUCKT_MODULE_PATTERNS={module_pattern} DEDUCKT_OUTPUT_DIR={targetFolder} python3 {python_deduckt_exe} {filename}"
+    else:
+      discard
     echo command
     let status = execCmd(command)
     if status == 130:
