@@ -39,6 +39,12 @@ do:
     # dump rewrites[1].genBlock
     res
 
+rewrite do (a: Any):
+  a["ExcludedMethods"]
+do:
+  code:
+    attribute(args["a"], "ExcludedMethods", sequenceType(StringType))
+
 # we need this for : Node
 var NodeType* = Type(kind: Simple, label: "Node")
 

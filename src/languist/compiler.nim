@@ -1,4 +1,4 @@
-import types, strformat, strutils, sequtils, ast_dsl, tables, json, gen_kind, sets, json, macros, terminal, helpers, os, osproc, sugar
+import types, strformat, strutils, sequtils, ast_dsl, tables, json, gen_kind, sets, json, macros, terminal, helpers, os, osproc, sugar, idiom_loader
 
 # Praise the Lord!
 
@@ -6,9 +6,12 @@ proc underscore(label: string): string
 
 proc rewriteType*(traceDB: TraceDB, label: string, typ: Type): Type =
   # rewrite a type from ruby based on module
-  
+    
+  # rewrite "RuboCop::AST::*", Type(kind: T.Simple, label: "Node")
   result = typ
   eecho &"TYP {label}"
+  if traceDB.rewrite.isNil:
+    return typ
   if traceDB.rewrite.types.len != 0:
     # first we check exact label and then the closest submatches 
     # e.g. A::B::C , A::B::*, A::*
@@ -337,7 +340,6 @@ proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
       result.add(rule)
 
 var rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[], symbolRules: @[], lastCalls: @[])
-var rewrites: seq[Rewrite] = @[]
 
 proc replace(rule: RewriteRule, node: Node, blockNode: Node, m: Module): Node =
   var args = initTable[string, Node]()
@@ -698,25 +700,6 @@ macro symbols*(input: untyped): untyped =
 proc params*(p: Table[string, string]) =
   rewriteList.params = p
 
-include rewrites/ruby_rewrite
-
-include rewrites/ruby_plugin
-
-var rewriteRuby* = rewriteList
-rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[], symbolRules: @[], lastCalls: @[])
-rewriteLangs[Lang.Ruby] = rewriteRuby
-
-include rewrites/nim_rewrite
-
-var rewriteNim = rewriteList
-rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[], symbolRules: @[], lastCalls: @[])
-
-include rewrites/python_rewrite
-
-var rewritePython* = rewriteList
-rewrites = @[rewriteRuby, rewritePython, rewriteNim]
-rewriteLangs[Lang.Python] = rewritePython
-
 var A = Type(kind: T.Object, label: "A", fields: initTable[string, Type]())
 
 proc toBool(node: Node): Node =
@@ -962,9 +945,11 @@ proc compile*(traceDB: TraceDB) =
   # assign type names
   analyzeCode(traceDB, env)
 
-  # rewrite ruby code
-  rewriteCode(traceDB, traceDB.rewrite)
-  # rewrite nim code
-  rewriteCode(traceDB, rewriteNim)
+  # load idioms
+  loadIdioms(traceDB)
+
+  # rewrite
+  for rewrite in rewrites:
+    rewriteCode(traceDB, rewrite)
 
   traceDB.generateCode 

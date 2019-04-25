@@ -1,12 +1,9 @@
 
 import
-  ruby
-
-import
-  strutils
+  types
 
 var a = "ruby text"
-p(a.toLowerAscii())
-p(a.toUpperAscii())
-p(a.capitalizeAscii())
+p(a.downcase())
+p(a.upcase())
+p(a.capitalize())
 p(a.strip())

@@ -1,7 +1,3 @@
-static:
-  inRuby = false
+print(x: Any) -> Void: echo(x)
 
-rewrite do (x: Any):
-  print(x)
-do -> String:
-  echo(x)
+

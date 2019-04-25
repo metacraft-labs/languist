@@ -1,6 +1,6 @@
 GIT
   remote: /home/alehander42/ruby-deduckt
-  revision: f42cf5ce932fc0ee9727508839d969fe24235e53
+  revision: 79f757009198cff62992128ff0269dcfed88c0e9
   branch: master
   specs:
     deduckt (0.1.0)
@@ -10,7 +10,7 @@ GEM
   remote: https://rubygems.org/
   specs:
     ast (2.4.0)
-    parser (2.6.2.0)
+    parser (2.6.2.1)
       ast (~> 2.4.0)
 
 PLATFORMS

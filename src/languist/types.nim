@@ -199,9 +199,10 @@ type
     lang*:                   Lang
     params*:                 Table[string, string]
 
+    # proc(node: Node, args: Table[string, Node], blockNode: Node, rule: RewriteRule): Node
   RewriteRule* = ref object
     input*:   Node
-    output*:  proc(node: Node, args: Table[string, Node], blockNode: Node, rule: RewriteRule): Node
+    output*:  Node
     args*:    seq[seq[int]]
     replaced*: seq[tuple[label: string, typ: Type]]
     isGeneric*: bool
@@ -225,7 +226,7 @@ type
     imports*: seq[string]
     name*: string
     ignoreMethods*: seq[string]
-    
+    idioms*: seq[IdiomPackage]
 
   AnnotationKind* = enum NoAnnotation, Ignore, NameType
 
@@ -253,6 +254,9 @@ let endl* = "\n"
 
 var debug* = false #true
 
+let activePath = getAppFilename()
+var activeFolder = activePath.splitFile[0]
+var cacheDir* = activeFolder / "idioms"
 
 template eecho*(a: untyped): untyped =
   if debug:

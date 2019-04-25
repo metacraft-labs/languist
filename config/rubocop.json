@@ -2,5 +2,6 @@
     "indent": 2,
     "imports": ["types"],
     "name": "nim-rubocop",
-    "ignoreMethods": ["autocorrect"]
+    "ignoreMethods": ["autocorrect"],
+    "idioms": []
 }

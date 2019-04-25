@@ -1,104 +1,31 @@
-static:
-  inRuby = false
+echo(a: Any) -> Void:           echo(a)
+text(a: Any) -> String:         $(a)
 
-rewrite do (x: Int):
-  x.is_positive()
-do -> Bool:
-  x > 0
-
-rewrite do (x: Any):
-  echo(x)
-do -> Void:
-  echo(x)
+typ(self: Int):
+  is_positive() -> Bool:        self > 0
 
 # TODO
-rewrite do (x: Sequence, y: Method):
-  x.map(y)
-do:
-  code:
-    send(args["x"], "mapIt", rewriteIt(args["y"]))
-  dependencies: @["sequtils"]
+typ(self: Sequence[T]):
+  dep sequtils
 
-rewrite do (x: Sequence, y: Method):
-  x.filter(y)
-do:
-  code:
-    send(args["x"], "filterIt", rewriteIt(args["y"]))
-  dependencies: @["sequtils"]
+  map[T, U](a: Method[T, U]) -> Sequence[U]:   self.mapIt(a)
+  filter(a: Method[T, Bool]) -> Sequence[T]:   self.filterIt(a)
+  any_question(a: Method[T, Bool]) -> Bool:    self.anyIt(a)
+  all_question(a: Method[T, Bool]) -> Bool:    self.allIt(a)
+  push(a: T) -> Void:                          self.add(a)
+  pop() -> T:
+    expr!(
+      defineLocalVar!("tmp", last!(self)),
+      self.delete(self.len() - 1, 1),
+      tmp)
+  clear() -> Void:                             self.clear()
+  contains(a: T) -> Bool:                      a in self
 
-rewrite do (x: Sequence, y: Method):
-  x.is_all(y)
-do:
-  code:
-    send(args["x"], "allIt", rewriteIt(args["y"]))
-  dependencies: @["sequtils"]
+typ(self: String):
+  dep strutils
 
-rewrite do (x: Sequence, y: Method):
-  x.is_any(y)
-do:
-  code:
-    send(args["x"], "anyIt", rewriteIt(args["y"]))
-  dependencies: @["sequtils"]
-
-
-rewrite do (x: Sequence, y: Any):
-  x.push(y)
-do:
-  code:
-    send(args["x"], "add", args["y"])
-
-rewrite do (x: Sequence):
-  x.pop()
-do:
-  code:
-    # Faith
-    Node(kind: Code,
-      children: @[
-        assign(variable("tmp"), index(args["x"], binop(operator("-"), send(args["x"], "len"), 1)), Var),
-        send(args["x"], "delete", binop(operator("-"), send(args["x"], "len"), Node(kind: Int, i: 1)), Node(kind: Int, i: 1)),
-        variable("tmp")])
-  dependencies: @["sequtils"]
-
-rewrite do (a: String):
-  a.lower()
-do:
-  code:
-    send(args["a"], "toLowerAscii")
-  dependencies: @["strutils"]
-
-rewrite do (a: String):
-  a.upper()
-do:
-  code:
-    send(args["a"], "toUpperAscii")
-  dependencies: @["strutils"]
-
-rewrite do (a: String):
-  a.capitalize()
-do:
-  code:
-    send(args["a"], "capitalizeAscii")
-  dependencies: @["strutils"]
-
-rewrite do (a: Any):
-  String(a)
-do:
-  code:
-    call(variable("$"), args["a"], StringType)
-rewrite do (a: Any):
-  a["ExcludedMethods"]
-do:
-  code:
-    attribute(args["a"], "ExcludedMethods", sequenceType(StringType))
-rewrite do (a: Any, b: Any): # FIX
-  a.isInclude(b)
-do:
-  code:
-    binop(operator"in", args["b"], args["a"], BoolType)
-
-rewrite do (a: Any):
-  a.toS
-do:
-  code:
-    call(variable("$"), args["a"], StringType)
+  lower() -> String:                           self.toLowerAscii()
+  upper() -> String:                           self.toUpperAscii()
+  capitalize() -> String:                      self.capitalizeAscii()
+  concat(a: String) -> String:                 self & a
 

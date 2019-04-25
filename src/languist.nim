@@ -11,9 +11,6 @@ if paramCount() != 1 and paramCount() != 3:
 let ruby_deduckt_exe = getEnv("LANGUIST_RUBY_DEDUCKT_PATH", "") / "exe" / "ruby-deduckt"
 let python_deduckt_exe = getEnv("LANGUIST_PYTHON_DEDUCKT_PATH", "") / "deduckt" / "main.py"
 echo ruby_deduckt_exe
-let activePath = getAppFilename()
-var activeFolder = activePath.splitFile[0]
-var cacheDir = activeFolder / "idioms"
 var first = paramStr(1)
 var filename = first
 var targetFolder = ""
@@ -74,6 +71,7 @@ if paramCount() == 1 and first != "last":
     # run the single test
     # rewriting the same lang_traces.json
     var config = parseJson(readFile("config/test.json")).to(Config)
+    config.idioms = loadIdiomList("idioms.yaml")
 
     for file in walkDir("test", true):
       if file.path.endswith(".rb") or file.path.endswith(".py"):
@@ -169,7 +167,7 @@ if not existsFile(path):
 var config = Config(imports: @[], indent: 2, name: "default config")
 if path.len > 0:
   config = parseJson(readFile(path)).to(Config)
-echo config
+config.idioms = loadIdiomList("idioms.yaml")
 
 var dir = targetFolder
 if targetFolder == "test":
