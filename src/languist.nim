@@ -33,7 +33,7 @@ proc init =
     writeFile("idioms.yaml", DEFAULT)
 
 proc loadIdiomList(path: string): seq[IdiomPackage] =
-  var t = initTable[string, RawPackage]()
+  var t: Table[string, RawPackage] # = initTable[string, RawPackage]()
   load(newFileStream(path), t)
   result = @[]
   for lang, raw in t:

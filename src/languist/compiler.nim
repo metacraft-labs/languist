@@ -46,7 +46,7 @@ proc loadType*(typ: JsonNode, traceDB: TraceDB): Type =
     else:
       result.returnType = loadType(typ{"returnType"}, traceDB)
   of T.Object:
-    result.fields = initTable[string, Type]()
+    # result.fields = initTable[string, Type]()
     if typ{"base"} == nil:
       result.base = nil
     else:
@@ -174,7 +174,7 @@ proc loadClass*(m: JsonNode, traceDB: TraceDB): Node =
   edump dump(typ, 0)
   if typ.isNil or typ.kind notin {Simple, Object}:
     # TODO
-    result.typ = Type(kind: T.Object, fields: initTable[string, Type]())
+    result.typ = Type(kind: T.Object) # fields: initTable[string, Type]())
   elif traceDB.types.hasKey(typ.label):
     result.typ = traceDB.types[typ.label]
   else:
@@ -194,14 +194,14 @@ var rewriteLangs*: array[Lang, Rewrite]
 proc load*(file: string, targetFolder: string, config: Config, lang: Lang): TraceDB =
   new(result)
   result.root = parseJson(readFile(file))
-  result.types = initTable[string, Type]()
+  # result.types = initTable[string, Type]()
   result.sysPath = @[]
   result.paths = @[]
   result.targetFolder = targetFolder
   result.modules = @[]
   result.rewrite = rewriteLangs[lang]
   result.config = config
-  result.methods = initTable[string, Type]()
+  # result.methods = initTable[string, Type]()
   result.lang = lang
   # result.projectDir = result.root{"@projectDir"}.getStr()
   # result.package = result.projectDir.rsplit("/", 1)[1]
@@ -263,21 +263,12 @@ func compatible(l: string, r: string): bool =
   
 
 var t = false
-proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): bool =
-  # if l.kind == Index and r.kind == Index:
-  #   t = true
-  if t:
-    echo l
-    echo r
+proc find(l: Node, r: Node, rule: RewriteRule): bool =
   if l.kind == Variable:
     var replace = false
     var typ: Type = nil
-    for member in replaced:
-      if member.label == l.label:
-        replace = true
-        typ = member.typ
-        break
-    if replace:
+    if rule.replacedPos.hasKey(l.label):
+      typ = rule.replaced[rule.replacedPos[l.label]].typ
       if not typ.isNil and not typ.accepts(r.typ):
         return false
       else:
@@ -322,7 +313,7 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
     return false
   for i in 0 .. < l.children.len:
     edump i
-    if not l.children[i].find(r.children[i], replaced):
+    if not l.children[i].find(r.children[i], rule):
       edump l.children[i]
       if l.kind == Index and r.kind == Index:
         echo "not equal"
@@ -336,24 +327,31 @@ proc find(l: Node, r: Node, replaced: seq[tuple[label: string, typ: Type]]): boo
 proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
   result = @[]
   for rule in rewrite.rules:
-    if rule.input.find(node, rule.replaced):
+    if rule.input.find(node, rule):
       result.add(rule)
 
 var rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[], symbolRules: @[], lastCalls: @[])
 
 proc replace(rule: RewriteRule, node: Node, blockNode: Node, m: Module): Node =
-  var args = initTable[string, Node]()
-  # dump node
-  for i in 0 ..< rule.replaced.len:
-    let r = rule.replaced[i].label
-    let arg = rule.args[i]
-    var k = 0
-    var subNode = node
-    while k < arg.len:
-      subNode = subNode.children[rule.args[i][k]]
-      k += 1
-    args[r] = subNode
-  result = rule.output(node, args, blockNode, rule)
+  var args: Table[string, Node] = initTable[string, Node]()
+  echo node
+  result = rule.output
+  for i in 0 ..< rule.replaceList.len:
+    let r = rule.replaceList[i][0]
+    let arg = rule.replaceList[i][1]
+    var subNode = result
+
+    for k in 0 ..< arg.len:
+      subNode = subNode.children[arg[k]]
+
+    var index: int
+    if rule.input.kind == Send:
+      index = 2 + r
+    else:
+      index = 1 + r
+    echo subNode.children, arg[^1], rule.input, index
+    subNode.children[arg[^1]] = rule.input.children[index]
+    subNode.children[arg[^1]].typ = rule.replaced[r].typ
   for dependency in rule.dependencies:
     var existing = false
     for im in m.imports:
@@ -372,11 +370,11 @@ proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): Node
   if not node.isFinished:
     b = rewrite.find(node)
   var newNode = node
-  if node.kind == Call and node.children[0].kind == Variable and node.children[0].label.underscore in rewrites[2].genBlock:
+  if node.kind == Call and node.children[0].kind == Variable and node.children[0].label.underscore in m.targetRewrite.genBlock:
     node.kind = MacroCall # = genKind(Node, MacroCall)
     if node.children[^1].kind == Block:
       node.children[^1] = Node(kind: Code, children: node.children[^1].code)
-  elif node.kind == Send and node.children[0].kind == Self and node.children[1].text.underscore in rewrites[2].genBlock:
+  elif node.kind == Send and node.children[0].kind == Self and node.children[1].text.underscore in m.targetRewrite.genBlock:
     let boolean = node.children[1].text.endsWith("?")
     if not boolean:
       node.kind = MacroCall
@@ -397,11 +395,9 @@ proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): Node
     for rule in rewrite.symbolRules:
       if rule.label == "_" and node.text in rule.elements:
         newNode = rule.handler(node.text)
-        echo newNode
     for rule in rewrite.lastCalls:
       if node.text in rule.elements:
         newNode = rule.handler(node.text)
-        echo newNode
   if node.kind == Call and node[0].kind == Variable:
     for rule in rewrite.symbolRules:
       if compatible(node[0].label, rule.label):
@@ -700,7 +696,7 @@ macro symbols*(input: untyped): untyped =
 proc params*(p: Table[string, string]) =
   rewriteList.params = p
 
-var A = Type(kind: T.Object, label: "A", fields: initTable[string, Type]())
+var A = Type(kind: T.Object, label: "A") #, fields: initTable[string, Type]())
 
 proc toBool(node: Node): Node =
   if node.typ == IntType:
@@ -730,7 +726,8 @@ proc analyze(node: Node, env: Env, class: Type = nil, inBranch: bool = false) =
     for met in node.methods.mitems:
       analyze(met.node, env, node.typ)
   of NodeMethod, Block:
-    var args = initTable[string, Type]()
+    var args: Table[string, Type] # = initTable[string, Type]()
+    echo "Table", args
     for arg in node.args:
       args[arg.label] = arg.typ
     if node.kind == NodeMethod:
@@ -914,6 +911,7 @@ proc rewriteProgram(node: Node, rewrite: Rewrite, m: Module): Node =
 
 proc rewriteProgram(m: Module, rewrite: Rewrite): Module =
   result = m
+  result.targetRewrite = rewrites[^1] # TODO
   result.classes = m.classes.mapIt(rewriteProgram(it, rewrite, m))
   result.main = m.main.mapIt(rewriteNode(it, rewrite, nil, m))
 
@@ -939,7 +937,7 @@ proc generateCode(traceDB: TraceDB) =
 
 
 proc compile*(traceDB: TraceDB) =
-  var env = Env(parent: nil, types: initTable[string, Type]())
+  var env = Env(parent: nil)
   for label, t in traceDB.methods:
     env[label] = t
   # assign type names

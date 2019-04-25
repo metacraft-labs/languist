@@ -1,5 +1,5 @@
 
-import sequtils, strutils, strformat, tables, sugar, hashes, gen_kind, sets, json, macros, terminal, helpers, os
+import sequtils, strutils, strformat, tables, sugar, hashes, gen_kind, sets, json, macros, terminal, helpers, os, sets
 import
   compiler/[ast]
 
@@ -175,6 +175,7 @@ type
     types*: seq[Node] # probably ClassDef
     classes*: seq[Node] # probably FunctionDef
     main*: seq[Node] # other top level stuff
+    targetRewrite*: Rewrite
   
   TypeDependency* = object
     methods*: Table[string, seq[string]]
@@ -199,13 +200,14 @@ type
     lang*:                   Lang
     params*:                 Table[string, string]
 
-    # proc(node: Node, args: Table[string, Node], blockNode: Node, rule: RewriteRule): Node
   RewriteRule* = ref object
-    input*:   Node
-    output*:  Node
-    args*:    seq[seq[int]]
-    replaced*: seq[tuple[label: string, typ: Type]]
-    isGeneric*: bool
+    input*:        Node
+    output*:       Node
+    args*:         seq[seq[int]]
+    replaced*:     seq[tuple[label: string, typ: Type]]
+    replacedPos*:  Table[string, int]
+    replaceList*:  seq[(int, seq[int])]
+    isGeneric*:    bool
     dependencies*: seq[string]
 
   Rewrite* = ref object
@@ -271,6 +273,24 @@ proc id*(package: IdiomPackage): string =
 
 proc simpleType*(label: string): Type =
   Type(kind: T.Simple, label: label)
+
+proc dump*(node: Node, depth: int, typ: bool = false): string
+
+proc dump*(t: Type, depth: int): string
+
+proc `$`*(rule: RewriteRule): string =
+  if rule.isNil:
+    "nil"
+  else:
+    &"""RewriteRule:
+  input: {dump(rule.input, 1)}
+  output: {dump(rule.output, 1)}
+  args: {rule.args}
+  replaced: {rule.replaced.mapIt(it.label & " " & dump(it.typ, 0)).join(", ")}
+  replacedPos: {rule.replacedPos}
+  replaceList: {rule.replaceList}
+  dependencies: {rule.dependencies}
+"""
 
 proc `$`*(t: Type): string
 

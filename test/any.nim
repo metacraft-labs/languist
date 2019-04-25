@@ -1,11 +1,5 @@
 
 import
-  ruby
+  types
 
-import
-  sequtils
-
-var a = @[4, 0].anyIt:
-  it > 0
-
-p(a)
+echo nil

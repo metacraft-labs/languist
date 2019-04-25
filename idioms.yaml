@@ -1,9 +1,2 @@
 ruby:
   lang: 2.5
-  rspec: 4.2
-python:
-  lang: 3.4
-  flask: 1.2
-nim:
-  lang: 0.19
-  web-nim: 0.1
