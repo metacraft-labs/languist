@@ -26,40 +26,92 @@ class RDLClass
   def map_to_nim(typ, name)
     if @types[name][:type_params].include?(typ.to_sym)
       typ.upcase
-    elsif @[:t, :u, :v, :w, :x, :y, :z].include?(:typ.to_sym)
-
-        @types[name][:methods][method]
-      typ.upcase
+    elsif [:t, :u, :v, :w, :x, :y, :z].include?(typ.to_sym)
+      if @type_params.empty?
+        @type_params = @types[name][:type_params].map { |it| it.to_s.upcase }
+      end
+      capital_type = typ.upcase
+      if !@type_params.include?(capital_type)
+        @type_params.push(capital_type)
+      end
+      capital_type
     else
       (@mapping[typ.to_sym] || typ).to_s
     end
   end
     
-  def parse_token(i, type, token)
+  def parse_tokens(type, tokens, i)
     # Range<Integer>
     # a
+    typ = tokens[i].strip
+    new_i = i + 1
+    if typ.include?('<')
+      start = typ.index('<')
+      finish = typ.index('>')
+      base = map_to_nim(typ[0 .. start - 1], type)
+      type_arg = map_to_nim(typ[start + 1 .. finish - 1], type)
+      typ = base + '[' + type_arg + ']'
+    elsif i < tokens.length - 1 && tokens[i + 1] == 'or'
+      # TODO more 2
+      sub_tokens = [typ, tokens[i + 2]]
+      new_i = i + 3
+      args = sub_tokens.each_with_index.map do |j, sub|
+        parse_tokens(i + j, type, tokens)[0]
+      end.join(', ')
+      typ = "Union[#{args}]"
+    else
+      typ = map_to_nim(typ, type)
+    end
+    [typ, new_i]
+  end
+
+  def lex(signature)
     result = []
-    tokens = token.split(',').map(&:strip)
-    tokens.each do |token_child|
-      typ = token_child
-      if typ.include?('<')
-        start = typ.index('<')
-        finish = typ.index('>')
-        base = map_to_nim(typ[0 .. start - 1], type)
-        type_arg = map_to_nim(typ[start + 1 .. finish - 1], type)
-        typ = base + '[' + type_arg + ']'
-      elsif typ.include?(' or ')
-        sub_tokens = typ.split(' or ').map(&:strip)
-        args = sub_tokens.map do |sub|
-          parse_token(0, type, sub)[0][1]
-        end.join(', ')
-        typ = "Union[#{args}]"
-      else
-        typ = map_to_nim(typ, type)
+    i = 0
+    last = ''
+    state = :start
+    while i < signature.length
+      c = signature[i]
+      case state
+      when :start
+        if c.match(/[\w_]/)
+          last = c
+          state = :name
+        elsif !c.match(/\s/)
+          last = c
+          state = :symbol
+        end
+      when :name
+        if c.match(/[\w_\<\>]/)
+          last += c
+        else
+          result.push(last)
+          last = ''
+          if !c.match(/\s/)
+            last = c
+            state = :symbol
+          else
+            state = :start
+          end
+        end
+      when :symbol
+        if c.match(/[\w_]/)
+          result.push(last)
+          last = c
+          state = :name
+        elsif c.match(/\s/)
+          result.push(last)
+          last = ''
+          state = :start
+        else
+          last += c
+        end
       end
-      arg = [ALPHABET[i], typ]
+      p "#{c} #{state}"
       i += 1
-      result.push(arg)
+    end
+    if !last.empty?
+      result.push(last)
     end
     result
   end
@@ -71,28 +123,64 @@ class RDLClass
     # [] ((Range<Integer>) -> Array<t>)
     # `[]`(a: Range[Int]) -> Sequence[T]: self.`[]`(a) # TODO
 
-    tokens = signature.split(' -> ')
+    tokens = lex(signature)
     result = {}
 
-    @type_args = []
+    @type_params = []
     result[:input] = {name: method, args: [], return_type: nil}
     result[:output] = {name: method, receiver: !type.nil? ? 'self' : '', args: []}
-    if tokens[0].start_with?('(') && tokens[0].end_with?(')')
-      tokens[0] = tokens[0][1 .. -2]
-    end
     p tokens
     i = 0
-    tokens[0 .. -2].each do |token|
-      new_args = parse_token(i, type, token)
-      result[:input][:args] += new_args
-      old_i = i
-      i += new_args.length
-      if i > old_i
-        result[:output][:args] += ALPHABET[old_i .. i - 1]
+    j = 0
+    k = 0
+    while j < tokens.length - 2
+      token = tokens[j]
+      if token == '(' || token == ')' || token == '()'
+        j += 1
+        next
+      elsif token == '{'
+        next_j = tokens[j .. -3].index('}') + j
+        i = j + 1
+        in_arg = false
+        tokens[j + 1.. next_j - 1].each do |child|
+          p "child #{child}"
+          block_args = []
+          block_type = ''
+          if child == '('
+            in_arg = true
+            i += 1
+          elsif child == ')' || child == '()'
+            in_arg = false
+            i += 1
+          elsif child != '->' && child != ','
+            if in_arg
+              block_arg, i = parse_tokens(type, tokens, i) # TODO: or
+            else
+              return_type, i = parse_tokens(type, tokens, i) # TODO: or
+              block_params = block_args + [return_type]
+              params = block_params.join(', ')
+              block_type = "Block[#{params}]"
+              result[:input][:args].push([ALPHABET[k], block_type])
+              result[:output][:args].push(ALPHABET[k])
+              break
+            end
+          else
+            i += 1
+          end
+        end
+        j = next_j + 1
+        i = j
+        next
       end
+      new_arg, i = parse_tokens(type, tokens, i)
+      result[:input][:args].push([ALPHABET[k], new_arg])
+      result[:output][:args].push(ALPHABET[k])
+      k += 1
+      j += 1
     end
     # FAITH
-    result[:input][:return_type] = parse_token(0, type, tokens[-1])[0][1]
+    result[:input][:return_type] = parse_tokens(type, tokens, tokens.length - 1)[0]
+    result[:input][:type_params] = @type_params
     result
   end
 
@@ -112,7 +200,8 @@ class RDLClass
     end
     args = input[:args].map { |it| "#{it[0]}: #{it[1]}" }.join(', ')
     return_type = input[:return_type]
-    "#{name}(#{args}) -> #{return_type}"
+    type_params = !input[:type_params].empty? ? '[' + input[:type_params].join(', ') + ']' : ''
+    "#{name}#{type_params}(#{args}) -> #{return_type}"
   end
 
   def generate_output(output)
@@ -120,7 +209,7 @@ class RDLClass
     if !name.between?('a', 'z')
       name = "`#{name}`"
     elsif name[-1] == '?'
-      name = "#{name[0 .. -2]}_question"
+      name = "#{name[0 .. -2]}_quftion"
     elsif name[-1] == '!'
       name = "#{name[0 .. -2]}_bang"
     end
@@ -296,8 +385,9 @@ RDL.type :Array, :unshift, '(*t) -> Array<t>'
 RDL.type :Array, :values_at, '(*Range<Integer> or Integer) -> Array<t>'
 RDL.type :Array, :zip, '(*Array<u>) -> Array<Array<t or u>>'
 RDL.type :Array, :|, '(Array<u>) -> Array<t or u>'
+RDL.type :Array, :collect, '() { (t) -> u } -> Array<u>'
 
-p RDL.types[:Array][:methods][:[]]
+p RDL.types[:Array][:methods][:collect]
 
 RDL.save_idioms('array.nim')
 
