@@ -349,7 +349,7 @@ proc replace(rule: RewriteRule, node: Node, blockNode: Node, m: Module): Node =
       index = 2 + r
     else:
       index = 1 + r
-    echo subNode.children, arg[^1], rule.input, index
+    echo rule.input, index
     subNode.children[arg[^1]] = rule.input.children[index]
     subNode.children[arg[^1]].typ = rule.replaced[r].typ
   for dependency in rule.dependencies:
