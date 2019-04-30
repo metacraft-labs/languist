@@ -341,7 +341,7 @@ proc replace(rule: RewriteRule, node: Node, blockNode: Node, m: Module): Node =
     let arg = rule.replaceList[i][1]
     var subNode = result
 
-    for k in 0 ..< arg.len:
+    for k in 0 ..< arg.len - 1:
       subNode = subNode.children[arg[k]]
 
     var index: int
@@ -349,8 +349,8 @@ proc replace(rule: RewriteRule, node: Node, blockNode: Node, m: Module): Node =
       index = 2 + r
     else:
       index = 1 + r
-    echo rule.input, index
-    subNode.children[arg[^1]] = rule.input.children[index]
+    # args contain the path to the input element?
+    subNode.children[arg[^1]] = node.children[index]
     subNode.children[arg[^1]].typ = rule.replaced[r].typ
   for dependency in rule.dependencies:
     var existing = false

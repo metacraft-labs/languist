@@ -84,8 +84,8 @@ if paramCount() == 1 and first != "last":
           continue
         case lang:
         of Lang.Ruby:
-          echo &"rbenv exec bundle exec ruby {ruby_deduckt_exe} -m {filename} -o {targetFolder} test/{filename}.rb"
-          command = &"rbenv exec bundle exec ruby {ruby_deduckt_exe} -m {filename} -o {targetFolder} test/{filename}.rb"
+          echo &"bundle exec ruby {ruby_deduckt_exe} -m {filename} -o {targetFolder} test/{filename}.rb"
+          command = &"bundle exec ruby {ruby_deduckt_exe} -m {filename} -o {targetFolder} test/{filename}.rb"
         of Lang.Python:
           command = &"env DEDUCKT_OUTPUT_DIR={targetFolder} python3 {python_deduckt_exe} test/{filename}.py"
           echo command
@@ -137,7 +137,7 @@ if paramCount() == 1 and first != "last":
     lang = getLang(extension)
     case lang:
     of Lang.Ruby:
-      command = &"env DEDUCKT_MODULE_PATTERNS={module_pattern} DEDUCKT_OUTPUT_DIR={targetFolder} rbenv exec bundle exec {ruby_deduckt_exe} {filename}"
+      command = &"env DEDUCKT_MODULE_PATTERNS={module_pattern} DEDUCKT_OUTPUT_DIR={targetFolder} bundle exec {ruby_deduckt_exe} {filename}"
     of Lang.Python:
       command = &"env DEDUCKT_MODULE_PATTERNS={module_pattern} DEDUCKT_OUTPUT_DIR={targetFolder} python3 {python_deduckt_exe} {filename}"
     else:

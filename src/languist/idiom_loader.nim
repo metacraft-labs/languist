@@ -74,7 +74,7 @@ proc loadCode(child: PNode, signature: RewriteRule): RewriteRule =
           if result.replacedPos.hasKey(arg.ident.s):
             echo arg.ident.s
             result.output.children.add(nil) # similar so we can add it to replace!
-            result.replaceList.add((result.replacedPos[arg.ident.s], @[i - 1]))
+            result.replaceList.add((result.replacedPos[arg.ident.s], @[i]))
           else:
             result.output.children.add(variable(arg.ident.s))
         of nkCharLit..nkUInt64Lit:

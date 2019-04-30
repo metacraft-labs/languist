@@ -2,9 +2,6 @@
 import
   ruby
 
-import
-  sequtils
-
-var a = @[4, 5].mapIt:
-  it
+var a = @[4, 5].map(proc (element: int): int =
+  element)
 p(a)

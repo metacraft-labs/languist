@@ -1,6 +1,6 @@
 
 import
-  types
+  ruby
 
 var a = "ruby text"
 p(a.downcase())

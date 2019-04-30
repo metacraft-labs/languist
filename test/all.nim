@@ -2,9 +2,7 @@
 import
   ruby
 
-import
-  sequtils
-
-var a = @[4, 0].allIt:
-  it > 0
+echo 0
+var a = @[4, 0].isAll(proc (element: int): bool =
+  element > 0)
 p(a)
