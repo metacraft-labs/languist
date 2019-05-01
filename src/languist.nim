@@ -156,7 +156,7 @@ else:
     if status == 130:
       quit(status)
   else:
-    targetFolder = getEnv("LANGUIST_FAST_RUBOCOP_PATH") / "cops" # TODO
+    targetFolder = "test" # getEnv("LANGUIST_FAST_RUBOCOP_PATH") / "cops" # TODO
   lang = Lang.Ruby # TODO
 
 var path = getEnv("LANGUIST_CONFIG", "languist.json")
