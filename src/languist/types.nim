@@ -129,6 +129,7 @@ type
     isFinished*: bool
     isReplace*: bool
     genBlock*: bool
+    rewriteIt*: bool
     case kind*: NodeKind:
     of String, Symbol, Docstring, Comment:
       text*: string

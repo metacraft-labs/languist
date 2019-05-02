@@ -13,24 +13,41 @@ import compiler/types as t2
 include deeptext
 
 let GENERICS = @["T", "U"].toHashSet()
-
+let GENERIC_LIST = @["T", "U"]
 proc loadType(child: PNode): Type =
-  case child.kind:
-  of nkIdent:
-    if child.ident.s == "Any":
-      Type(kind: T.Any)
-    else:
-      Type(kind: T.Simple, label: child.ident.s)
-  of nkBracketExpr:
-    if child[0].kind == nkIdent:
-      if child[1].kind == nkIdent and child[1].ident.s in GENERICS:
-        Type(kind: T.Generic, label: child[0].ident.s, genericArgs: @[child[1].ident.s])
+  echo "type ", child.e
+  result = case child.kind:
+    of nkIdent:
+      let label = child.ident.s
+        
+      if label in GENERICS:
+        Type(kind: T.GenericVar, label: label)
+      elif label == "Any":
+        Type(kind: T.Any)
       else:
-        Type(kind: T.Compound, args: @[loadType(child[1])], original: Type(kind: T.Generic, label: child[0].ident.s, genericArgs: @["T"]))
+        Type(kind: T.Simple, label: label)
+
+    of nkBracketExpr:
+      if child[0].kind == nkIdent:
+        if child.len == 2 and child[1].kind == nkIdent and child[1].ident.s in GENERICS:
+          Type(kind: T.Generic, label: child[0].ident.s, genericArgs: @[child[1].ident.s])
+        else:
+          var res = Type(kind: T.Compound, args: @[loadType(child[1])], original: Type(kind: T.Generic, label: child[0].ident.s, genericArgs: @["T"]))
+          if child.len > 2:
+            for i, ch in child:
+              if i > 1:
+                res.args.add loadType(ch)
+                res.original.genericArgs.add GENERIC_LIST[i - 1]
+          if res.original.label == "Block" or res.original.label == "Method":
+            let args = res.args[0 .. ^2]
+            let returnType = res.args[^1]
+            res = Type(kind: T.Method, args: args, returnType: returnType)
+          res
+      else:
+        nil
     else:
       nil
-  else:
-    nil
+  echo result
 
 proc loadSignature(child: PNode, returnType: PNode, typ: Type = nil): RewriteRule =
   result = RewriteRule()
@@ -41,14 +58,21 @@ proc loadSignature(child: PNode, returnType: PNode, typ: Type = nil): RewriteRul
     else:
       result.input = Node(kind: Send, children: @[variable("self"), Node(kind: String, text: child[0].ident.s)])
     result.replacedPos = initTable[string, int]()
+    var b = 0
+    if not typ.isNil:
+      result.args.add(@[])
+      result.replaced.add((label: "self", typ: typ))
+      result.replacedPos["self"] = 0
+      result.replaced.add((label: "", typ: nil))
+      b = 1
     for i, arg in child:
       if i > 0:
-        echo "arg ", arg.e
         let typ = loadType(arg[1])
         result.input.children.add(variable(arg[0].ident.s, typ=typ))
         result.args.add(@[])
         result.replaced.add((label: arg[0].ident.s, typ: typ))
-        result.replacedPos[arg[0].ident.s] = i - 1
+        result.replacedPos[arg[0].ident.s] = i + b
+
   else:
     discard
 
@@ -60,23 +84,46 @@ proc loadCode(child: PNode, signature: RewriteRule): RewriteRule =
   # code is translated to a Node and to some state
   # which helps rewrite to later assign to the correct fields/sequence
   # the matched input
-  echo ch.e
   case ch.kind:
-  of nkCall:
-    assert ch[0].kind == nkIdent
+  of nkCall,:
     result.output = Node(kind: Call)
-    result.output.children = @[variable(ch[0].ident.s)]
+    var b = 0
+    if ch[0].kind == nkDotExpr:
+      if ch[0][0].kind == nkIdent:
+        result.output = Node(kind: Send, children: @[variable(ch[0][0].ident.s), Node(kind: String, text: ch[0][1].ident.s)])
+        echo "fa ", "pos ", result.replacedPos
+        if result.replacedPos.hasKey("self"):
+          result.output.children[0] = nil
+          result.replaceList.add((result.replacedPos["self"], @[0]))
+          echo "fa ", "self ", result.replaceList
+        b = 1
+      else:
+        discard
+    else:
+      result.output.children = @[variable(ch[0].ident.s)]
     for i, arg in ch:
+      echo "fa ", i, " ", arg.e
       if i > 0:
         case arg.kind:
-        of nkIdent:
-          echo result.replacedPos, arg.ident.s, result.replacedPos.hasKey(arg.ident.s)
-          if result.replacedPos.hasKey(arg.ident.s):
-            echo arg.ident.s
-            result.output.children.add(nil) # similar so we can add it to replace!
-            result.replaceList.add((result.replacedPos[arg.ident.s], @[i]))
+        of nkIdent, nkPrefix:
+
+          var label = ""
+          var child: Node
+          if arg.kind == nkIdent:
+            label = arg.ident.s
+            child = nil
           else:
-            result.output.children.add(variable(arg.ident.s))
+            assert arg[0].ident.s == "~"
+            label = arg[1].ident.s
+            child = variable("")
+            child.rewriteIt = true
+
+          if result.replacedPos.hasKey(label):
+            result.output.children.add(child)
+            result.replaceList.add((result.replacedPos[label], @[i + b]))
+            echo "fa ", label, " ", result.replaceList
+          else:
+            result.output.children.add(variable(label))
         of nkCharLit..nkUInt64Lit:
           result.output.children.add(Node(kind: Int, i: arg.intVal.int))
         of nkFloatLit..nkFloat128Lit:
@@ -86,11 +133,10 @@ proc loadCode(child: PNode, signature: RewriteRule): RewriteRule =
         of nkSym:
           discard
         else:
-          echo "todo ", arg.e
+          discard
   else:
     discard
   
-
 proc loadMapping(child: PNode, typ: Type, dep: var seq[string], res: var Rewrite) =
   case child.kind:
   of nkCommand:
@@ -102,7 +148,6 @@ proc loadMapping(child: PNode, typ: Type, dep: var seq[string], res: var Rewrite
     var signature = loadSignature(child[1], child[2], typ)
     var right = loadCode(child[3], signature)
     right.dependencies = dep
-    echo right
     res.rules.add(right)
   else:
     discard
@@ -115,18 +160,17 @@ proc loadDSL*(dsl: PNode, res: var Rewrite) =
       var dep: seq[string]
       loadMapping(child, nil, dep, res)
     of nkCall:
-      if child[0].kind == nkIdent:
-        if child[0].ident.s == "typ":
-          # typ(T): children
-          let typ = loadType(child[1])
+      if child[0].kind == nkObjConstr and child[0][0].kind == nkIdent:
+        if child[0][0].ident.s == "typ":
+          let typ = loadType(child[0][1][1])
           var dep: seq[string]
-          for typChild in child[2]:
+          echo child[0][1][1].e
+          for typChild in child[1]:
             loadMapping(typChild, typ, dep, res)
 
-        elif child[0].ident.s == "rewrite":
-          # rewrite(a: A, b: B): children
+        elif child[0][0].ident.s == "rewrite":
           var args: Table[string, Type]
-          for arg in child[1]:
+          for arg in child[0][1]:
             assert arg[0].kind == nkIdent
             args[arg[0].ident.s] = loadType(arg[1])
         else:

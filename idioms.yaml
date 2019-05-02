@@ -1,2 +1,4 @@
 ruby:
   lang: 2.6
+nim:
+  lang: 0.19

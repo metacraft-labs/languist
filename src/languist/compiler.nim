@@ -2,8 +2,8 @@ import types, strformat, strutils, sequtils, ast_dsl, tables, json, gen_kind, se
 
 # Praise the Lord!
 
+proc rewriteIt(code: Node): Node
 proc underscore(label: string): string
-
 proc rewriteType*(traceDB: TraceDB, label: string, typ: Type): Type =
   # rewrite a type from ruby based on module
     
@@ -236,6 +236,11 @@ proc startPath*(db: TraceDB): string =
 
 
 proc accepts(l: Type, r: Type): bool =
+  dump l.kind
+  dump r.kind
+  dump l.label
+  dump r.label
+  
   if l.isNil:
     return false
   if l.kind == T.Any:
@@ -244,17 +249,28 @@ proc accepts(l: Type, r: Type): bool =
     return false
   elif l.kind == T.Method and l.kind == r.kind and l.returnType.isNil:
     return true
+  elif l.kind == T.Method and l.kind == r.kind and l.args.zip(r.args).allIt(it[0].accepts(it[1])) and l.returnType.accepts(r.returnType):
+    result = true
+    dump result
+  elif l.kind == T.Compound and r.kind == T.Compound and l.label == r.label and l.args.zip(r.args).allIt(it[0].accepts(it[1])):
+    return true
   elif l.kind == T.Generic and r.kind == T.Compound and l.label == r.original.label:
+    return true
+  elif l.kind == T.GenericVar:
     return true
   else:
     return l == r    
 
+template question(r: string): string =
+  r[0 .. ^2] & "_question"
+
 proc normalize(label: string): string =
   result = camelCase(label)  
 
+
 func compatible(l: string, r: string): bool =
   if '?' in r:
-    var good = "is_" & r[0 .. ^2]
+    var good = question(r)
     good = good.normalize
     var goodL = l.normalize
     goodL == good
@@ -264,14 +280,20 @@ func compatible(l: string, r: string): bool =
 
 var t = false
 proc find(l: Node, r: Node, rule: RewriteRule): bool =
+  echo "find"
+  echo l
+  echo r
+  echo rule
   if l.kind == Variable:
     var replace = false
     var typ: Type = nil
     if rule.replacedPos.hasKey(l.label):
       typ = rule.replaced[rule.replacedPos[l.label]].typ
+      echo "accepts", typ, r.typ
       if not typ.isNil and not typ.accepts(r.typ):
         return false
       else:
+        echo "true"
         return true
     else:
       if l.label == "self" and r.kind == Self:
@@ -327,14 +349,14 @@ proc find(l: Node, r: Node, rule: RewriteRule): bool =
 proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
   result = @[]
   for rule in rewrite.rules:
-    if rule.input.find(node, rule):
-      result.add(rule)
+    if node.kind == Send and rule.input.kind == Send:
+      if rule.input.find(node, rule):
+        result.add(rule)
 
 var rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[], symbolRules: @[], lastCalls: @[])
 
 proc replace(rule: RewriteRule, node: Node, blockNode: Node, m: Module): Node =
   var args: Table[string, Node] = initTable[string, Node]()
-  echo node
   result = rule.output
   for i in 0 ..< rule.replaceList.len:
     let r = rule.replaceList[i][0]
@@ -346,11 +368,15 @@ proc replace(rule: RewriteRule, node: Node, blockNode: Node, m: Module): Node =
 
     var index: int
     if rule.input.kind == Send:
-      index = 2 + r
+      # index = 2 + r
+      index = r
     else:
       index = 1 + r
-    # args contain the path to the input element?
-    subNode.children[arg[^1]] = node.children[index]
+
+    if not subNode.children[arg[^1]].isNil and subNode.children[arg[^1]].rewriteIt:
+      subNode.children[arg[^1]] = rewriteIt(node.children[r])
+    else:
+      subNode.children[arg[^1]] = node.children[r]
     subNode.children[arg[^1]].typ = rule.replaced[r].typ
   for dependency in rule.dependencies:
     var existing = false
@@ -497,8 +523,8 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)], isOutputArg: b
         sons.add(oldSons[0][1])
         sons.add(oldSons[0][2])
         sons = sons.concat(oldSons[1 .. ^1])
-        if inRuby and ($sons[1]).startsWith("is_"):
-          sons[1] = newLit(($(sons[1]))[3 .. ^1] & "?")
+        if inRuby and ($sons[1]).endsWith("_question"):
+          sons[1] = newLit(($(sons[1]))[0 .. ^("_question".len + 1)] & "?")
       else:
         let voidNode = ident("VoidType")
         sons.add(voidNode)
@@ -718,7 +744,7 @@ proc underscore(label: string): string =
     else:
       result.add($c)
   if result.endsWith("?"):
-    result = "is_" & result[0 .. ^2]
+    result = question(result)
 
 proc analyze(node: Node, env: Env, class: Type = nil, inBranch: bool = false) =
   case node.kind:
@@ -774,7 +800,7 @@ proc analyze(node: Node, env: Env, class: Type = nil, inBranch: bool = false) =
     var newChildren: seq[Node]
     if node.kind == Send:
       if node.children[1].text.endsWith("?"):
-        node.children[1].text = "is_" & node.children[1].text[0 .. ^2]
+        node.children[1].text = question(node.children[1].text)
       children = node.children[2 .. ^1]
       newChildren.add(node.children[1])
     for arg in children:
@@ -798,8 +824,7 @@ proc analyze(node: Node, env: Env, class: Type = nil, inBranch: bool = false) =
       node.children[1].label = underscore(node.children[1].label)
   of Variable:
     if node.label.endsWith("?") and node.label.len > 1:
-      eecho node.label
-      node.label = "is_" & node.label[0 .. ^2]
+      node.label = question(node.label)
     node.typ = env.get(node.label)
   of RubyConst:
     node.typ = Type(kind: T.Simple, label: "Class")

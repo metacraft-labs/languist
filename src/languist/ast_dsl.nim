@@ -214,7 +214,7 @@ macro call*(f: untyped, args: untyped, typ: untyped): untyped =
   if children.kind != nnkPrefix:
     children = nnkPrefix.newTree(ident("@"), nnkBracket.newTree(children))
   let t = typ
-  echo children.repr
+  # echo children.repr
   result = quote:
     Node(kind: Call, children: @[`f`].concat(`children`), typ: `t`, isFinished: true)
 
@@ -223,7 +223,7 @@ macro call*(f: untyped, arg: untyped, arg2: untyped, typ: untyped): untyped =
   children = nnkPrefix.newTree(ident("@"), nnkBracket.newTree(children))
   children[1].add(arg2)
   let t = typ
-  echo children.repr
+  # echo children.repr
   result = quote:
     Node(kind: Call, children: @[`f`].concat(`children`), typ: `t`, isFinished: true)
 
