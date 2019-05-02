@@ -26,12 +26,12 @@
   
 #   # TODO matching more exact , but it doesnt really matter for now
   
-# typ(self: Sequence[T]):
-#   each(y: Any) -> Void:
-#     forIn!(`y.mainArg`, x, `~y.code`)
+typ(self: Sequence[T]):
+  # each(y: Any) -> Void:
+    # forIn!(`y.mainArg`, x, `~y.code`)
 
-#   select(y: Method) -> Sequence[T]:    self.filter(y)
-#   first() -> T:                        index!(x, 0) # we hve to generate those so we know how, but only 
+  select(y: Block[T, Bool]) -> Sequence[T]:    self.filter(y)
+#   first() -> T:                        index!(x, 0) # we hve to generate those so we know how, but only  # index! is great!
 #   is_one() -> Bool:                    self.len == 1
 
 # typ(self: String):

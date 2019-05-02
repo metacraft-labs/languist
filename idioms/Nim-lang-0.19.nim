@@ -8,10 +8,12 @@
 typ(self: Sequence[T]):
   dep sequtils
 
-#   map[T, U](a: Method[T, U]) -> Sequence[U]:   self.mapIt(a)
-#   filter(a: Method[T, Bool]) -> Sequence[T]:   self.filterIt(a)
-#   any_question(a: Method[T, Bool]) -> Bool:    self.anyIt(a)
-  all_question(a: Block[T, Bool]) -> Bool:    self.allIt(~a) 
+  # TODO
+  # map[T, U](a: Block[T, U]) -> Sequence[U]:    self.mapIt(~a)
+  map(a: Block[T, Any]) -> Sequence[Any]:      self.mapIt(~a)
+  filter(a: Block[T, Bool]) -> Sequence[T]:    self.filterIt(~a)
+  any_question(a: Block[T, Bool]) -> Bool:     self.anyIt(~a)
+  all_question(a: Block[T, Bool]) -> Bool:     self.allIt(~a) 
   #  push(a: T) -> Void:                          self.add(a)
 #   pop() -> T:
 #     expr!(

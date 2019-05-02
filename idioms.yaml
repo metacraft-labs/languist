@@ -1,4 +1,6 @@
-ruby:
-  lang: 2.6
-nim:
-  lang: 0.19
+input:
+  ruby:
+    lang: 2.6
+target:
+  nim:
+    lang: 0.19

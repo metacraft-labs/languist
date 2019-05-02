@@ -33,12 +33,15 @@ proc init =
     writeFile("idioms.yaml", DEFAULT)
 
 proc loadIdiomList(path: string): seq[IdiomPackage] =
-  var t: Table[string, RawPackage] # = initTable[string, RawPackage]()
+  var t: InputPackage # Table[string, RawPackage] # = initTable[string, RawPackage]()
   load(newFileStream(path), t)
   result = @[]
-  for lang, raw in t:
+  for lang, raw in t.input:
     for name, version in raw:
-      result.add(IdiomPackage(name: name, version: $version, lang: getLang(lang), isLang: name == "lang"))
+      result.add(IdiomPackage(name: name, version: $version, lang: getLang(lang), isLang: name == "lang", isTarget: false))
+  for lang, raw in t.target:
+    for name, version in raw:
+      result.add(IdiomPackage(name: name, version: $version, lang: getLang(lang), isLang: name == "lang", isTarget: true))
 
 proc downloadRaw(package: IdiomPackage, path: string) =
   # TODO http

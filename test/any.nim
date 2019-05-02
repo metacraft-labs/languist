@@ -1,5 +1,9 @@
 
 import
-  types
+  ruby
 
-echo nil
+import
+  sequtils
+
+var a = @[4, 0].anyIt:
+  it > 0

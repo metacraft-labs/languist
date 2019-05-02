@@ -91,18 +91,18 @@ proc loadCode(child: PNode, signature: RewriteRule): RewriteRule =
     if ch[0].kind == nkDotExpr:
       if ch[0][0].kind == nkIdent:
         result.output = Node(kind: Send, children: @[variable(ch[0][0].ident.s), Node(kind: String, text: ch[0][1].ident.s)])
-        echo "fa ", "pos ", result.replacedPos
+        # echo "fa ", "pos ", result.replacedPos
         if result.replacedPos.hasKey("self"):
           result.output.children[0] = nil
           result.replaceList.add((result.replacedPos["self"], @[0]))
-          echo "fa ", "self ", result.replaceList
+          # echo "fa ", "self ", result.replaceList
         b = 1
       else:
         discard
     else:
       result.output.children = @[variable(ch[0].ident.s)]
     for i, arg in ch:
-      echo "fa ", i, " ", arg.e
+      # echo "fa ", i, " ", arg.e
       if i > 0:
         case arg.kind:
         of nkIdent, nkPrefix:
@@ -115,13 +115,13 @@ proc loadCode(child: PNode, signature: RewriteRule): RewriteRule =
           else:
             assert arg[0].ident.s == "~"
             label = arg[1].ident.s
-            child = variable("")
+            child = variable(label)
             child.rewriteIt = true
 
           if result.replacedPos.hasKey(label):
             result.output.children.add(child)
             result.replaceList.add((result.replacedPos[label], @[i + b]))
-            echo "fa ", label, " ", result.replaceList
+            # echo "fa ", label, " ", result.replaceList
           else:
             result.output.children.add(variable(label))
         of nkCharLit..nkUInt64Lit:

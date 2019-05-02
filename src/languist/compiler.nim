@@ -236,11 +236,6 @@ proc startPath*(db: TraceDB): string =
 
 
 proc accepts(l: Type, r: Type): bool =
-  dump l.kind
-  dump r.kind
-  dump l.label
-  dump r.label
-  
   if l.isNil:
     return false
   if l.kind == T.Any:
@@ -280,20 +275,14 @@ func compatible(l: string, r: string): bool =
 
 var t = false
 proc find(l: Node, r: Node, rule: RewriteRule): bool =
-  echo "find"
-  echo l
-  echo r
-  echo rule
   if l.kind == Variable:
     var replace = false
     var typ: Type = nil
     if rule.replacedPos.hasKey(l.label):
       typ = rule.replaced[rule.replacedPos[l.label]].typ
-      echo "accepts", typ, r.typ
       if not typ.isNil and not typ.accepts(r.typ):
         return false
       else:
-        echo "true"
         return true
     else:
       if l.label == "self" and r.kind == Self:
@@ -325,31 +314,22 @@ proc find(l: Node, r: Node, rule: RewriteRule): bool =
   else:
     result = true
   if not result:
-    if l.kind == Index and r.kind == Index:
-      echo "not result"
     return
   if l.children.len != r.children.len:
-    if l.kind == Index and r.kind == Index:
-      t = false
-      echo "no"
     return false
   for i in 0 .. < l.children.len:
     edump i
     if not l.children[i].find(r.children[i], rule):
       edump l.children[i]
-      if l.kind == Index and r.kind == Index:
-        echo "not equal"
-        t = false
       return false
-  if l.kind == Index and r.kind == Index:
-    echo "true"
-    t = false
   result = true
   
 proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
   result = @[]
   for rule in rewrite.rules:
     if node.kind == Send and rule.input.kind == Send:
+      dump node
+      echo rule
       if rule.input.find(node, rule):
         result.add(rule)
 

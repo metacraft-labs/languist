@@ -2,6 +2,9 @@
 import
   ruby
 
-var a = @[4, 5].map(proc (element: int): int =
-  element)
+import
+  sequtils
+
+var a = @[4, 5].mapIt:
+  it
 p(a)

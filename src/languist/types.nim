@@ -246,10 +246,15 @@ type
     version*: string
     lang*: Lang
     isLang*: bool
+    isTarget*: bool
 
   LangPackages* = Table[string, RawPackage]
   
   RawPackage* = Table[string, float]
+
+  InputPackage* = object
+    input*: Table[string, RawPackage]
+    target*: Table[string, RawPackage]
 
   Lang* = enum Ruby, Python, Nim
 
