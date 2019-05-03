@@ -714,6 +714,8 @@ proc translateIdentifier*(label: string): string =
   var l = label
   if l.endsWith("?"):
     l = "is_" & l[0 .. ^2]
+  elif l.endswith("_question"):
+    l = "is_" & l[0 .. ^9]
   result = camelCase(l)
   
 

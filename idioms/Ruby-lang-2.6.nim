@@ -1,4 +1,4 @@
-# puts(a: Any) -> Void:                echo(a)
+puts(a: Any) -> Void:                echo(a)
 
 # typ(self: Any):
 #   to_s() -> String:                  text(self)

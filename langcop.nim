@@ -13,6 +13,7 @@ let directory2 = getEnv("LANGUIST_RUBOCOP_PATH")
   
 if directory.len == 0:
   echo &"languist {arg} {nimRubocop}/cops \"bash {directory2}/spec.sh {arg} {category}\""
+  
   discard execShellCmd(&"languist {arg} {nimRubocop}/cops \"bash {directory2}/spec.sh {arg} {category}\"")
 else:
   for child in walkDir(directory, true):

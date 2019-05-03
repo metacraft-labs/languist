@@ -14,7 +14,7 @@
 #     assign(variable(args["x"].text), Node(kind: Call, children: @[variable(suiteLabel)], typ: Type(kind: T.Simple, label: suiteLabel)), Var)
 
 
-# rewrite "RuboCop::AST::*", Type(kind: T.Simple, label: "Node")
+rewrite "RuboCop::AST::*", Type(kind: T.Simple, label: "Node")
 
 # rewrite do (a: String, b: Method):
 #   it(a, b)
@@ -55,14 +55,14 @@
 #     var arg = args["a"]
 #     attribute(arg, "kind", Type(kind: Simple, label: "Type"))
 
-# const LOCATIONS = @["name", "expression", "selector", "nameRange", "operator", "keyword"]
-# const KINDS = @["lvasgn", "int", "def", "sym", "or_asgn", "begin"]
+const LOCATIONS = @["name", "expression", "selector", "nameRange", "operator", "keyword"]
+const KINDS = @["lvasgn", "int", "def", "sym", "or_asgn", "begin"]
 
-# symbols:
-#   add_offense LOCATIONS:
-#     variable(a)
+symbols:
+  add_offense LOCATIONS:
+    variable(a)
 
-#   _ KINDS:
-#     variable("Rb" & a.camelCase.capitalizeAscii)
+  _ KINDS:
+    variable("Rb" & a.camelCase.capitalizeAscii)
 
-# params({"self": "*", "node": "Node"}.toTable)
+params({"self": "*", "node": "Node"}.toTable)

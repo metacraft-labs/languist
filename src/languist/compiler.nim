@@ -327,11 +327,8 @@ proc find(l: Node, r: Node, rule: RewriteRule): bool =
 proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
   result = @[]
   for rule in rewrite.rules:
-    if node.kind == Send and rule.input.kind == Send:
-      dump node
-      echo rule
-      if rule.input.find(node, rule):
-        result.add(rule)
+    if rule.input.find(node, rule):
+      result.add(rule)
 
 var rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[], symbolRules: @[], lastCalls: @[])
 
@@ -940,6 +937,8 @@ proc generateCode(traceDB: TraceDB) =
     writeFile(newPath, output)
     echo &"write {newPath}"
 
+const LOCATIONS = @["name", "expression", "selector", "nameRange", "operator", "keyword"]
+const KINDS = @["lvasgn", "int", "def", "sym", "or_asgn", "begin"]
 
 proc compile*(traceDB: TraceDB) =
   var env = Env(parent: nil)
@@ -952,7 +951,11 @@ proc compile*(traceDB: TraceDB) =
   loadIdioms(traceDB)
 
   # rewrite
-  for rewrite in rewrites:
+  for i, rewrite in rewrites:
+    if i == 0:
+      rewriteList = rewrite
+      rewrite "RuboCop::AST::*", Type(kind: T.Simple, label: "Node")
+
     rewriteCode(traceDB, rewrite)
 
   traceDB.generateCode 

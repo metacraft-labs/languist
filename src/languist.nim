@@ -150,7 +150,7 @@ if paramCount() == 1 and first != "last":
     if status == 130:
       quit(status)
 else:
-  if first != "last":
+  if first != "last" and first != "last_rubocop":
     targetFolder = expandFilename(paramStr(2))
     command = paramStr(3)
     # echo &"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}"
@@ -159,7 +159,10 @@ else:
     if status == 130:
       quit(status)
   else:
-    targetFolder = "test" # getEnv("LANGUIST_FAST_RUBOCOP_PATH") / "cops" # TODO
+    if first == "last":
+      targetFolder = "test" 
+    else:
+      targetFolder = getEnv("LANGUIST_FAST_RUBOCOP_PATH") / "cops"
   lang = Lang.Ruby # TODO
 
 var path = getEnv("LANGUIST_CONFIG", "languist.json")
