@@ -130,6 +130,7 @@ type
     isReplace*: bool
     genBlock*: bool
     rewriteIt*: bool
+    stringGenBlock*: bool
     case kind*: NodeKind:
     of String, Symbol, Docstring, Comment:
       text*: string

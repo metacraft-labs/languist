@@ -1,4 +1,5 @@
 value = 2
+puts value
 if value == 2
   p value
 else

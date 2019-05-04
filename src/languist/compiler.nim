@@ -4,12 +4,13 @@ import types, strformat, strutils, sequtils, ast_dsl, tables, json, gen_kind, se
 
 proc rewriteIt(code: Node): Node
 proc underscore(label: string): string
+proc generateInput(input: NimNode): (NimNode, seq[(string, NimNode)])
+proc compileNode(node: NimNode, replaced: seq[(string, NimNode)], isOutputArg: bool = false): NimNode
 proc rewriteType*(traceDB: TraceDB, label: string, typ: Type): Type =
   # rewrite a type from ruby based on module
     
   # rewrite "RuboCop::AST::*", Type(kind: T.Simple, label: "Node")
   result = typ
-  eecho &"TYP {label}"
   if traceDB.rewrite.isNil:
     return typ
   if traceDB.rewrite.types.len != 0:
@@ -21,9 +22,78 @@ proc rewriteType*(traceDB: TraceDB, label: string, typ: Type): Type =
 
     for i in countdown(tokens.len - 2, 0):
       let subLabel = tokens[0 .. i].join("::") & "::*"
-      eecho &"FIND {subLabel}"
       if traceDB.rewrite.types.hasKey(subLabel):
         return traceDB.rewrite.types[subLabel]
+
+macro rewrite*(input: untyped, output: untyped): untyped =
+  if input.kind == nnkStrLit:
+
+    let node = output
+    result = quote:
+      rewriteList.types[`input`] = `node`
+      rewriteList.types[`input`].rewritten = true
+    return result
+  let (inputNode, replaced) = generateInput(input)
+  result = inputNode
+  let help = ident("help")
+  var outputNode: NimNode
+  dump output.lisprepr
+  var dependencies: NimNode = quote:
+    @[]
+  if output.kind == nnkStmtList and output[0][0].repr == "code":
+    outputNode = output[0][1]
+    if output.len > 1:
+      dependencies = output[1][1]
+  else:
+    outputNode = compileNode(output, replaced, true)
+  let code = outputNode
+  let outputCall = nnkLambda.newTree(
+    newEmptyNode(),
+    newEmptyNode(),
+    newEmptyNode(),
+    nnkFormalParams.newTree(
+      newIdentNode("Node"),
+      nnkIdentDefs.newTree(
+        newIdentNode("node"),
+        newIdentNode("Node"),
+        newEmptyNode()
+      ),
+      nnkIdentDefs.newTree(
+        newIdentNode("args"),
+        nnkBracketExpr.newTree(
+          newIdentNode("Table"),
+          newIdentNode("string"),
+          newIdentNode("Node")
+        ),
+        newEmptyNode()
+      ),
+      nnkIdentDefs.newTree(
+        newIdentNode("blockNode"),
+        newIdentNode("Node"),
+        newEmptyNode()
+      ),
+      nnkIdentDefs.newTree(
+        newIdentNode("rule"),
+        newIdentNode("RewriteRule"),
+        newEmptyNode()
+      )
+    ),
+    newEmptyNode(),
+    newEmptyNode(),
+    code
+  )
+
+
+  var n = quote:
+    `help`.output = `outputCall`
+  result.add(n)
+  n = quote:
+    `help`.dependencies = `dependencies`
+  result.add(n)
+  result = quote:
+    block:
+      `result`
+  dump result.repr
 
 proc loadType*(typ: JsonNode, traceDB: TraceDB): Type =
   # load a type from trace
@@ -157,8 +227,6 @@ proc loadMethod*(m: JsonNode, traceDB: TraceDB, isBlock: bool = false): Node =
   if result.typ.isNil or traceDB.lang == Lang.Python:
     var args = result.args.mapIt(it.typ)
     result.typ = Type(kind: T.Method, args: args, returnType: result.returnType)
-  # echo result.label
-  # echo result.typ
   if traceDB.lang == Lang.Python:
     result.typ.returnType = result.returnType
   traceDB.methods[result.label] = result.typ
@@ -189,7 +257,7 @@ proc loadModule*(m: JsonNode, traceDB: TraceDB, path: string): Module =
   result.main = m{"main"}.mapIt(loadNode(it, traceDB))
   result.classes = m{"classes"}.mapIt(loadClass(it, traceDB)).filterIt(not it.isNil)
 
-var rewriteLangs*: array[Lang, Rewrite]
+var rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[], symbolRules: @[], lastCalls: @[])
 
 proc load*(file: string, targetFolder: string, config: Config, lang: Lang): TraceDB =
   new(result)
@@ -199,12 +267,13 @@ proc load*(file: string, targetFolder: string, config: Config, lang: Lang): Trac
   result.paths = @[]
   result.targetFolder = targetFolder
   result.modules = @[]
-  result.rewrite = rewriteLangs[lang]
+  result.rewrite = rewriteList
   result.config = config
   # result.methods = initTable[string, Type]()
   result.lang = lang
   # result.projectDir = result.root{"@projectDir"}.getStr()
   # result.package = result.projectDir.rsplit("/", 1)[1]
+  rewrite "RuboCop::AST::*", Type(kind: T.Simple, label: "Node")
   for label, m in result.root:
     for typ, obj in m:
       result.types[typ] = loadType(obj, result)
@@ -278,8 +347,13 @@ proc find(l: Node, r: Node, rule: RewriteRule): bool =
   if l.kind == Variable:
     var replace = false
     var typ: Type = nil
+
+    echo l, " ", r, " ", rule.replaced
+
     if rule.replacedPos.hasKey(l.label):
+      echo "pos ", rule.replacedPos[l.label]
       typ = rule.replaced[rule.replacedPos[l.label]].typ
+      echo "typ ", typ, " r typ ", r.typ
       if not typ.isNil and not typ.accepts(r.typ):
         return false
       else:
@@ -330,7 +404,6 @@ proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
     if rule.input.find(node, rule):
       result.add(rule)
 
-var rewriteList = Rewrite(rules: @[], types: initTable[string, Type](), genBlock: @[], symbolRules: @[], lastCalls: @[])
 
 proc replace(rule: RewriteRule, node: Node, blockNode: Node, m: Module): Node =
   var args: Table[string, Node] = initTable[string, Node]()
@@ -350,8 +423,14 @@ proc replace(rule: RewriteRule, node: Node, blockNode: Node, m: Module): Node =
     else:
       index = 1 + r
 
-    if not subNode.children[arg[^1]].isNil and subNode.children[arg[^1]].rewriteIt:
-      subNode.children[arg[^1]] = rewriteIt(node.children[r])
+    if not subNode.children[arg[^1]].isNil:
+      var a = subNode.children[arg[^1]]
+      if a.rewriteIt:
+        subNode.children[arg[^1]] = rewriteIt(node.children[r])
+      elif a.stringGenBlock:
+        subNode.children[arg[^1]] = variableGenBlock(node.children[r].text, VoidType)
+      else:
+        subNode.children[arg[^1]] = node.children[r]
     else:
       subNode.children[arg[^1]] = node.children[r]
     subNode.children[arg[^1]].typ = rule.replaced[r].typ
@@ -501,7 +580,7 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)], isOutputArg: b
         sons.add(oldSons[0][2])
         sons = sons.concat(oldSons[1 .. ^1])
         if inRuby and ($sons[1]).endsWith("_question"):
-          sons[1] = newLit(($(sons[1]))[0 .. ^("_question".len + 1)] & "?")
+          sons[1] = newLit(($(sons[1]))[0 .. ^("_question".len + 2)] & "?")
       else:
         let voidNode = ident("VoidType")
         sons.add(voidNode)
@@ -611,75 +690,6 @@ proc rewriteIt(code: Node): Node =
     rewriteLabel(child, element, "it")
   result = Node(kind: Code, children: code.code)
 
-macro rewrite*(input: untyped, output: untyped): untyped =
-  if input.kind == nnkStrLit:
-
-    let node = output
-    result = quote:
-      rewriteList.types[`input`] = `node`
-      rewriteList.types[`input`].rewritten = true
-    return result
-  let (inputNode, replaced) = generateInput(input)
-  result = inputNode
-  let help = ident("help")
-  var outputNode: NimNode
-  dump output.lisprepr
-  var dependencies: NimNode = quote:
-    @[]
-  if output.kind == nnkStmtList and output[0][0].repr == "code":
-    outputNode = output[0][1]
-    if output.len > 1:
-      dependencies = output[1][1]
-  else:
-    outputNode = compileNode(output, replaced, true)
-  let code = outputNode
-  let outputCall = nnkLambda.newTree(
-    newEmptyNode(),
-    newEmptyNode(),
-    newEmptyNode(),
-    nnkFormalParams.newTree(
-      newIdentNode("Node"),
-      nnkIdentDefs.newTree(
-        newIdentNode("node"),
-        newIdentNode("Node"),
-        newEmptyNode()
-      ),
-      nnkIdentDefs.newTree(
-        newIdentNode("args"),
-        nnkBracketExpr.newTree(
-          newIdentNode("Table"),
-          newIdentNode("string"),
-          newIdentNode("Node")
-        ),
-        newEmptyNode()
-      ),
-      nnkIdentDefs.newTree(
-        newIdentNode("blockNode"),
-        newIdentNode("Node"),
-        newEmptyNode()
-      ),
-      nnkIdentDefs.newTree(
-        newIdentNode("rule"),
-        newIdentNode("RewriteRule"),
-        newEmptyNode()
-      )
-    ),
-    newEmptyNode(),
-    newEmptyNode(),
-    code
-  )
-
-
-  var n = quote:
-    `help`.output = `outputCall`
-  result.add(n)
-  n = quote:
-    `help`.dependencies = `dependencies`
-  result.add(n)
-  result = quote:
-    block:
-      `result`
-  dump result.repr
 
 macro symbols*(input: untyped): untyped =
   result = nnkStmtList.newTree()
@@ -694,7 +704,6 @@ macro symbols*(input: untyped): untyped =
         `callCode`
       rewriteList.symbolRules.add(SymbolRule(label: `callLabel`, elements: `c`, handler: l))
     result.add(symbol)
-  echo result.repr
 
 proc params*(p: Table[string, string]) =
   rewriteList.params = p
@@ -730,7 +739,6 @@ proc analyze(node: Node, env: Env, class: Type = nil, inBranch: bool = false) =
       analyze(met.node, env, node.typ)
   of NodeMethod, Block:
     var args: Table[string, Type] # = initTable[string, Type]()
-    echo "Table", args
     for arg in node.args:
       args[arg.label] = arg.typ
     if node.kind == NodeMethod:
@@ -866,11 +874,9 @@ proc analyze(node: Node, env: Env, class: Type = nil, inBranch: bool = false) =
     elif node.children[0].label == "+":
       node.typ = node.children[1].typ
   of UnaryOp:
-    # echo "UNARY", node.children[0].label, node.children[0].label in @["not", "!"]
     if node.children[0].label in @["not", "!"]:
       node.typ = BoolType
       node.children[0].label = "not"
-    # echo node.children[0]
   of If:
     analyze(node.children[0], env, inBranch=true)
     node.children[0] = toBool(node.children[0])
@@ -931,14 +937,16 @@ proc generateCode(traceDB: TraceDB) =
     let folder = nimPath.parentDir.splitFile[1]
     let base = nimPath.splitFile[1]
     let newPath = traceDB.targetFolder / folder / base & ".nim"
-    var generator = Generator(indent: 2, v: V019, module: Module(), identifierCollisions: initSet[string](), lang: traceDB.lang, params: rewrites[0].params)
+    var generator = Generator(indent: 2, v: V019, module: Module(), identifierCollisions: initSet[string](), lang: traceDB.lang, params: rewrites[1].params)
     var output = generator.generate(input, traceDB.config)
     createDir traceDB.targetFolder / folder
     writeFile(newPath, output)
-    echo &"write {newPath}"
 
 const LOCATIONS = @["name", "expression", "selector", "nameRange", "operator", "keyword"]
 const KINDS = @["lvasgn", "int", "def", "sym", "or_asgn", "begin"]
+
+
+var initList = rewriteList
 
 proc compile*(traceDB: TraceDB) =
   var env = Env(parent: nil)
@@ -952,9 +960,18 @@ proc compile*(traceDB: TraceDB) =
 
   # rewrite
   for i, rewrite in rewrites:
-    if i == 0:
+    if i == 1:
       rewriteList = rewrite
-      rewrite "RuboCop::AST::*", Type(kind: T.Simple, label: "Node")
+      symbols:
+        add_offense LOCATIONS:
+          variable(a)
+
+        _ KINDS:
+          variable("Rb" & a.camelCase.capitalizeAscii)
+
+      params({"self": "*", "node": "Node"}.toTable)
+
+      rewrites[1] = rewrite
 
     rewriteCode(traceDB, rewrite)
 

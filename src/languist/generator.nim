@@ -151,7 +151,6 @@ proc generateArgs(generator: Generator, nodes: seq[Node], typ: Type, returnType:
 proc generateForward(generator: Generator, function: Node): PNode =
   assert function.kind in {NodeMethod, Block}
 
-  eecho function.typ.isNil
   #if function.returnType.isNil:
   #  echo "nil"
   #elif function.returnType.kind == Simple:
@@ -164,8 +163,8 @@ proc generateForward(generator: Generator, function: Node): PNode =
     function.returnType = VoidType # HACK
   elif function.label.startsWith("check"):
     function.returnType = VoidType
-  if function.typ.isNil:
-    edump function
+  # if function.typ.isNil:
+  #   edump function
   if generator.lang == Lang.Python:
     function.returnType = function.typ.returnType
   # echo function.label
@@ -245,7 +244,6 @@ proc generateArgs(generator: Generator, nodes: seq[Node], typ: Type, returnType:
       discard
     if generator.params.hasKey(name):
       var expected = generator.params[name]
-      echo $typNode
       if expected == "*" or typNode.kind == nkIdent and expected == $typNode:
         typNode = emptyNode
 

@@ -68,7 +68,7 @@ proc install =
   for idioms in idiomList:
     downloadIdiom(idioms)
 
-if paramCount() == 1 and first != "last":
+if paramCount() == 1 and first != "last" and first != "last_rubocop":
   if first == "test":
     # all files in test
     # run the single test
@@ -154,6 +154,7 @@ else:
     targetFolder = expandFilename(paramStr(2))
     command = paramStr(3)
     # echo &"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}"
+    echo &"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}"
     let status = execCmd(&"env DEDUCKT_MODULE_PATTERNS={filename} DEDUCKT_OUTPUT_DIR={targetFolder} {command}")
 
     if status == 130:
@@ -171,9 +172,11 @@ if not existsFile(path):
 if not existsFile(path):
   path = ""
 var config = Config(imports: @[], indent: 2, name: "default config")
+
 if path.len > 0:
   config = parseJson(readFile(path)).to(Config)
 config.idioms = loadIdiomList("idioms.yaml")
+echo config.imports
 
 var dir = targetFolder
 if targetFolder == "test":

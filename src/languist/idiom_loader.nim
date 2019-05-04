@@ -15,7 +15,7 @@ include deeptext
 let GENERICS = @["T", "U"].toHashSet()
 let GENERIC_LIST = @["T", "U"]
 proc loadType(child: PNode): Type =
-  echo "type ", child.e
+  # echo "type ", child.e
   result = case child.kind:
     of nkIdent:
       let label = child.ident.s
@@ -47,7 +47,7 @@ proc loadType(child: PNode): Type =
         nil
     else:
       nil
-  echo result
+  # echo result
 
 proc loadSignature(child: PNode, returnType: PNode, typ: Type = nil): RewriteRule =
   result = RewriteRule()
@@ -65,6 +65,10 @@ proc loadSignature(child: PNode, returnType: PNode, typ: Type = nil): RewriteRul
       result.replacedPos["self"] = 0
       result.replaced.add((label: "", typ: nil))
       b = 1
+    else:
+      result.replaced.add((label: "", typ: nil))
+
+
     for i, arg in child:
       if i > 0:
         let typ = loadType(arg[1])
@@ -91,18 +95,15 @@ proc loadCode(child: PNode, signature: RewriteRule): RewriteRule =
     if ch[0].kind == nkDotExpr:
       if ch[0][0].kind == nkIdent:
         result.output = Node(kind: Send, children: @[variable(ch[0][0].ident.s), Node(kind: String, text: ch[0][1].ident.s)])
-        # echo "fa ", "pos ", result.replacedPos
         if result.replacedPos.hasKey("self"):
           result.output.children[0] = nil
           result.replaceList.add((result.replacedPos["self"], @[0]))
-          # echo "fa ", "self ", result.replaceList
         b = 1
       else:
         discard
     else:
       result.output.children = @[variable(ch[0].ident.s)]
     for i, arg in ch:
-      # echo "fa ", i, " ", arg.e
       if i > 0:
         case arg.kind:
         of nkIdent, nkPrefix:
@@ -113,15 +114,19 @@ proc loadCode(child: PNode, signature: RewriteRule): RewriteRule =
             label = arg.ident.s
             child = nil
           else:
-            assert arg[0].ident.s == "~"
-            label = arg[1].ident.s
-            child = variable(label)
-            child.rewriteIt = true
-
+            assert arg[0].ident.s in @["~", "%"]
+            if arg[0].ident.s == "~":
+              label = arg[1].ident.s
+              child = variable(label)
+              child.rewriteIt = true
+            else:
+              label = arg[1].ident.s
+              child = variable(label)
+              child.stringGenBlock = true
+              
           if result.replacedPos.hasKey(label):
             result.output.children.add(child)
             result.replaceList.add((result.replacedPos[label], @[i + b]))
-            # echo "fa ", label, " ", result.replaceList
           else:
             result.output.children.add(variable(label))
         of nkCharLit..nkUInt64Lit:
@@ -134,9 +139,11 @@ proc loadCode(child: PNode, signature: RewriteRule): RewriteRule =
           discard
         else:
           discard
+      echo result
+      echo result.replacedPos
   else:
     discard
-  
+
 proc loadMapping(child: PNode, typ: Type, dep: var seq[string], res: var Rewrite) =
   case child.kind:
   of nkCommand:
@@ -164,7 +171,6 @@ proc loadDSL*(dsl: PNode, res: var Rewrite) =
         if child[0][0].ident.s == "typ":
           let typ = loadType(child[0][1][1])
           var dep: seq[string]
-          echo child[0][1][1].e
           for typChild in child[1]:
             loadMapping(typChild, typ, dep, res)
 
