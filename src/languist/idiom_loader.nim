@@ -80,6 +80,39 @@ proc loadSignature(child: PNode, returnType: PNode, typ: Type = nil): RewriteRul
   else:
     discard
 
+proc parseChild(child: PNode, res: RewriteRule, i: int): Node =
+  var label = ""
+  case child.kind:
+  of nkIdent, nkPrefix:
+    if child.kind == nkIdent:
+      label = child.ident.s
+      result = nil
+    else:
+      assert child[0].ident.s in @["~", "%"]
+      if child[0].ident.s == "~":
+        label = child[1].ident.s
+        result = variable(label)
+        result.rewriteIt = true
+      else:
+        label = child[1].ident.s
+        result = variable(label)
+        result.stringGenBlock = true
+      
+      if res.replacedPos.hasKey(label):
+        res.replaceList.add((res.replacedPos[label], @[i + b]))
+      else:
+        result = variable(label)
+of nkCharLit..nkUInt64Lit:
+  result = Node(kind: Int, i: child.intVal.int)
+of nkFloatLit..nkFloat128Lit:
+  result = Node(kind: Float, f: child.floatVal.float)
+of nkStrLit..nkTripleStrLit:
+  result = Node(kind: String, text: child.strVal)
+of nkSym:
+  discard
+else:
+  discard
+
 proc loadCode(child: PNode, signature: RewriteRule): RewriteRule =
   var ch = child
   while ch.kind == nkStmtList and ch.len == 1:
@@ -103,44 +136,22 @@ proc loadCode(child: PNode, signature: RewriteRule): RewriteRule =
         discard
     else:
       result.output.children = @[variable(ch[0].ident.s)]
-    for i, arg in ch:
+    for i, param in ch:
       if i > 0:
-        case arg.kind:
-        of nkIdent, nkPrefix:
+        let newChild = parseChild(param, result, i)
+        if not newChild.isNil:
+          result.output.children.add(newChild)
+        
 
-          var label = ""
-          var child: Node
-          if arg.kind == nkIdent:
-            label = arg.ident.s
-            child = nil
-          else:
-            assert arg[0].ident.s in @["~", "%"]
-            if arg[0].ident.s == "~":
-              label = arg[1].ident.s
-              child = variable(label)
-              child.rewriteIt = true
-            else:
-              label = arg[1].ident.s
-              child = variable(label)
-              child.stringGenBlock = true
-              
-          if result.replacedPos.hasKey(label):
-            result.output.children.add(child)
-            result.replaceList.add((result.replacedPos[label], @[i + b]))
-          else:
-            result.output.children.add(variable(label))
-        of nkCharLit..nkUInt64Lit:
-          result.output.children.add(Node(kind: Int, i: arg.intVal.int))
-        of nkFloatLit..nkFloat128Lit:
-          result.output.children.add(Node(kind: Float, f: arg.floatVal.float))
-        of nkStrLit..nkTripleStrLit:
-          result.output.children.add(Node(kind: String, text: arg.strVal))
-        of nkSym:
-          discard
-        else:
-          discard
-      echo result
-      echo result.replacedPos
+  of nkInfix:
+    if ch[0].ident.s == "!":
+      let numbers = 0.countup(ch[2].len).toSeq
+      let params = ch[2].zip(numbers).mapIt(parseChild(it[0], result, it[1])).filterIt(not it.isNil)
+      case ch[1].ident.s
+      of "macroCall":
+        result.output = Node(kind: MacroCall, children: params)
+      else:
+        discard
   else:
     discard
 
