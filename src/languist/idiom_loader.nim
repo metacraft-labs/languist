@@ -80,13 +80,13 @@ proc loadSignature(child: PNode, returnType: PNode, typ: Type = nil): RewriteRul
   else:
     discard
 
-proc parseChild(child: PNode, res: RewriteRule, i: int): Node =
+proc parseChild(child: PNode, res: RewriteRule, i: int, b: int): Node =
   var label = ""
   case child.kind:
   of nkIdent, nkPrefix:
     if child.kind == nkIdent:
       label = child.ident.s
-      result = nil
+      result = variable(label)
     else:
       assert child[0].ident.s in @["~", "%"]
       if child[0].ident.s == "~":
@@ -98,20 +98,21 @@ proc parseChild(child: PNode, res: RewriteRule, i: int): Node =
         result = variable(label)
         result.stringGenBlock = true
       
-      if res.replacedPos.hasKey(label):
-        res.replaceList.add((res.replacedPos[label], @[i + b]))
-      else:
-        result = variable(label)
-of nkCharLit..nkUInt64Lit:
-  result = Node(kind: Int, i: child.intVal.int)
-of nkFloatLit..nkFloat128Lit:
-  result = Node(kind: Float, f: child.floatVal.float)
-of nkStrLit..nkTripleStrLit:
-  result = Node(kind: String, text: child.strVal)
-of nkSym:
-  discard
-else:
-  discard
+      echo label, " ", res.replacedPos
+    if res.replacedPos.hasKey(label):
+      res.replaceList.add((res.replacedPos[label], @[i + b]))
+    else:
+      result = variable(label)
+  of nkCharLit..nkUInt64Lit:
+    result = Node(kind: Int, i: child.intVal.int)
+  of nkFloatLit..nkFloat128Lit:
+    result = Node(kind: Float, f: child.floatVal.float)
+  of nkStrLit..nkTripleStrLit:
+    result = Node(kind: String, text: child.strVal)
+  of nkSym:
+    discard
+  else:
+    discard
 
 proc loadCode(child: PNode, signature: RewriteRule): RewriteRule =
   var ch = child
@@ -138,15 +139,16 @@ proc loadCode(child: PNode, signature: RewriteRule): RewriteRule =
       result.output.children = @[variable(ch[0].ident.s)]
     for i, param in ch:
       if i > 0:
-        let newChild = parseChild(param, result, i)
+        let newChild = parseChild(param, result, i, b)
+        echo "NEW", newChild
         if not newChild.isNil:
           result.output.children.add(newChild)
         
 
   of nkInfix:
     if ch[0].ident.s == "!":
-      let numbers = 0.countup(ch[2].len).toSeq
-      let params = ch[2].zip(numbers).mapIt(parseChild(it[0], result, it[1])).filterIt(not it.isNil)
+      let numbers = (0..ch[2].len).toSeq()
+      let params = ch[2].toSeq().zip(numbers).mapIt(parseChild(it[0], result, it[1], 0)).filterIt(not it.isNil)
       case ch[1].ident.s
       of "macroCall":
         result.output = Node(kind: MacroCall, children: params)

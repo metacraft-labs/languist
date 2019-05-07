@@ -325,8 +325,6 @@ proc accepts(l: Type, r: Type): bool =
   else:
     return l == r    
 
-template question(r: string): string =
-  r[0 .. ^2] & "_question"
 
 proc normalize(label: string): string =
   result = camelCase(label)  
@@ -408,6 +406,8 @@ proc find(rewrite: Rewrite, node: Node): seq[RewriteRule] =
 proc replace(rule: RewriteRule, node: Node, blockNode: Node, m: Module): Node =
   var args: Table[string, Node] = initTable[string, Node]()
   result = rule.output
+  # rule.replaceList.add((2, @[2]))
+        
   for i in 0 ..< rule.replaceList.len:
     let r = rule.replaceList[i][0]
     let arg = rule.replaceList[i][1]
@@ -428,6 +428,8 @@ proc replace(rule: RewriteRule, node: Node, blockNode: Node, m: Module): Node =
       if a.rewriteIt:
         subNode.children[arg[^1]] = rewriteIt(node.children[r])
       elif a.stringGenBlock:
+        echo "STRING GEN BLOCK ", node.children[r].text
+        echo rule
         subNode.children[arg[^1]] = variableGenBlock(node.children[r].text, VoidType)
       else:
         subNode.children[arg[^1]] = node.children[r]
@@ -452,6 +454,9 @@ proc rewriteNode(node: Node, rewrite: Rewrite, blockNode: Node, m: Module): Node
   if not node.isFinished:
     b = rewrite.find(node)
   var newNode = node
+  if node.kind == Send and node.children[0].kind == Self:
+    echo node.children[1].text.underscore, " ", m.targetRewrite.genBlock
+    echo rewrites[0].genBlock
   if node.kind == Call and node.children[0].kind == Variable and node.children[0].label.underscore in m.targetRewrite.genBlock:
     node.kind = MacroCall # = genKind(Node, MacroCall)
     if node.children[^1].kind == Block:
@@ -580,7 +585,7 @@ proc compileNode(node: NimNode, replaced: seq[(string, NimNode)], isOutputArg: b
         sons.add(oldSons[0][2])
         sons = sons.concat(oldSons[1 .. ^1])
         if inRuby and ($sons[1]).endsWith("_question"):
-          sons[1] = newLit(($(sons[1]))[0 .. ^("_question".len + 2)] & "?")
+          sons[1] = newLit(($(sons[1]))[0 .. ^("_question".len + 1)] & "?")
       else:
         let voidNode = ident("VoidType")
         sons.add(voidNode)

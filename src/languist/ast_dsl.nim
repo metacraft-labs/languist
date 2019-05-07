@@ -117,13 +117,17 @@ macro variable*(name: untyped, typ: untyped = nil): untyped =
       typ: `t`,
       isFinished: true)
 
+template question*(r: string): string =
+  r[0 .. ^2] & "_question"
+
+
 macro variableGenBlock*(name: untyped, typ: untyped = nil): untyped =
   let t = if typ.isNil: newNilLit() else: typ
   result = quote:
     block:
       var n = `name`
       if n.endsWith("?"):
-        n = "is_" & n[0 .. ^2]
+        n = question(n)
       for rewrite in rewrites:
         rewrite.genBlock.add(n)
       Node(
